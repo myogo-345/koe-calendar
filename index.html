@@ -603,10 +603,10 @@ footer{padding:20px 0;border-top:1px solid var(--border);font-size:10px;color:va
 // ══════════════════════════════════════════════════════
 const ENV_GEMINI_KEY = '%%GEMINI_KEY%%';
 const ENV_CLIENT_ID  = '%%CLIENT_ID%%';
-if(!localStorage.getItem('koe_gemini_key') && ENV_GEMINI_KEY !== '%%GEMINI_KEY%%'){
+if(!localStorage.getItem('koe_gemini_key') && ENV_GEMINI_KEY){
   localStorage.setItem('koe_gemini_key', ENV_GEMINI_KEY);
 }
-if(!localStorage.getItem('koe_client_id') && ENV_CLIENT_ID !== '%%CLIENT_ID%%'){
+if(!localStorage.getItem('koe_client_id') && ENV_CLIENT_ID){
   localStorage.setItem('koe_client_id', ENV_CLIENT_ID);
 }
 
