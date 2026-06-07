@@ -242,6 +242,27 @@ main{padding:28px 0 24px}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .toast.success{background:var(--green)}.toast.error{background:var(--red)}
 
+/* ── Timezone ── */
+.tz-search-wrap{position:relative;margin-bottom:8px}
+.tz-dropdown{position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;max-height:180px;overflow-y:auto;z-index:60;box-shadow:0 4px 16px var(--shadow)}
+.tz-option{padding:9px 12px;font-size:12px;font-family:'DM Mono',monospace;cursor:pointer;border-bottom:1px solid var(--border);line-height:1.5}
+.tz-option:last-child{border-bottom:none}
+.tz-option:hover{background:var(--accent-light);color:var(--accent)}
+.tz-opt-name{color:var(--ink)}
+.tz-opt-sub{color:var(--ink-muted);font-size:10px}
+.tz-stay-item{background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:10px 14px;margin-bottom:7px;display:flex;align-items:center;gap:10px}
+.tz-stay-info{flex:1;min-width:0}
+.tz-stay-name{font-size:12px;font-family:'DM Mono',monospace;color:var(--ink)}
+.tz-stay-period{font-size:11px;font-family:'DM Mono',monospace;color:var(--ink-muted);margin-top:2px}
+.tz-alert-box{background:var(--accent-light);border-top:1px solid rgba(196,90,42,.15);padding:14px 18px}
+.tz-alert-title{font-size:12px;font-family:'DM Mono',monospace;font-weight:bold;color:var(--accent);margin-bottom:8px}
+.tz-alert-body{font-size:12px;font-family:'DM Mono',monospace;line-height:2.1;color:var(--ink);margin-bottom:12px}
+.tz-btn-row{display:flex;gap:8px}
+.tz-btn-local{flex:1;min-height:44px;border:1.5px solid var(--accent);background:#fff;color:var(--accent);border-radius:10px;font-size:12px;font-family:'DM Mono',monospace;cursor:pointer;transition:all .2s}
+.tz-btn-local:hover{background:var(--accent);color:#fff}
+.tz-btn-japan{flex:1;min-height:44px;border:1px solid var(--border);background:var(--surface);color:var(--ink);border-radius:10px;font-size:12px;font-family:'DM Mono',monospace;cursor:pointer;transition:all .2s}
+.tz-btn-japan:hover{background:var(--ink);color:#fff}
+
 /* ── GCal home badge ── */
 .gcal-home-wrap{margin-bottom:16px}
 .gcal-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-family:'DM Mono',monospace;color:var(--green);background:var(--green-light);border:1px solid rgba(58,125,94,.2);border-radius:20px;padding:5px 12px;cursor:default}
@@ -393,6 +414,16 @@ footer{padding:20px 0;border-top:1px solid var(--border);font-size:10px;color:va
         <div id="candidateList" style="display:flex;flex-direction:column;gap:7px"></div>
       </div>
 
+      <!-- 時差アラート -->
+      <div id="tzAlert" style="display:none" class="tz-alert-box">
+        <div class="tz-alert-title">⚠️ 時差に注意</div>
+        <div class="tz-alert-body" id="tzAlertBody"></div>
+        <div class="tz-btn-row">
+          <button class="tz-btn-local" onclick="execWithTz('local')">🌏 現地時間で登録</button>
+          <button class="tz-btn-japan" onclick="execWithTz('japan')">🇯🇵 日本時間で登録</button>
+        </div>
+      </div>
+
       <div class="card-actions" id="cardActions">
         <button class="btn btn-secondary" onclick="clearCard()">クリア</button>
         <button class="btn btn-ai" id="reparseBtn" onclick="runParse()">
@@ -538,6 +569,30 @@ footer{padding:20px 0;border-top:1px solid var(--border);font-size:10px;color:va
     </div>
 
     <div class="s-section">
+      <div class="section-head">現在地</div>
+      <div class="s-card">
+        <div class="s-row">
+          <div class="s-icon" style="background:var(--blue-light);color:var(--blue)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20" stroke="currentColor" stroke-width="1.5"/></svg></div>
+          <div class="s-body">
+            <div class="s-label">海外滞在の設定</div>
+            <div class="s-desc">滞在中に予定を入れると時差アラートが表示されます</div>
+            <div class="tz-search-wrap">
+              <input class="ki" type="text" id="tzSearch" placeholder="都市・TZ名で検索（hawaii, paris, new york…）" oninput="onTzSearch(this.value)" autocomplete="off" style="width:100%">
+              <div class="tz-dropdown" id="tzDropdown" style="display:none"></div>
+            </div>
+            <div id="tzSelectedDisplay" style="display:none;font-size:11px;font-family:'DM Mono',monospace;color:var(--green);margin-bottom:8px">✓ <span id="tzSelectedLabel"></span></div>
+            <div style="display:flex;gap:6px;margin-bottom:8px">
+              <input class="ki" type="date" id="stayStart" style="min-width:0;flex:1">
+              <input class="ki" type="date" id="stayEnd"   style="min-width:0;flex:1">
+            </div>
+            <button class="btn-ks" onclick="addStay()" style="width:100%;margin-bottom:12px">＋ 滞在先を追加</button>
+            <div id="stayList"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="s-section">
       <div class="section-head">音声</div>
       <div class="s-card">
         <div class="toggle-row"><div><div class="tg-label">話し終わったら自動解析</div><div class="tg-desc">録音停止後にAI解析を自動開始</div></div><label class="toggle"><input type="checkbox" id="autoParseToggle" onchange="savePref('autoParse',this.checked)"><span class="tg-sl"></span></label></div>
@@ -640,7 +695,204 @@ const S = {
   detailEvent: null,     // event being shown in detail sheet
   pendingConfirm: null,  // resolve function for confirm dialog
   editTargetId: null,    // google event id for edit
+  tzMode: null,          // 'local' | 'japan' | null
+  _activeTzStay: null,   // stay object matched to parse card date
 };
+
+// ══════════════════════════════════════════════════════
+// TIMEZONE / STAY PERIODS
+// ══════════════════════════════════════════════════════
+const TZ_ALIASES={
+  'hawaii':'Pacific/Honolulu','honolulu':'Pacific/Honolulu',
+  'la':'America/Los_Angeles','los angeles':'America/Los_Angeles','losangeles':'America/Los_Angeles',
+  'new york':'America/New_York','newyork':'America/New_York','nyc':'America/New_York',
+  'chicago':'America/Chicago','toronto':'America/Toronto','vancouver':'America/Vancouver',
+  'seattle':'America/Los_Angeles','san francisco':'America/Los_Angeles',
+  'london':'Europe/London','paris':'Europe/Paris','berlin':'Europe/Berlin',
+  'amsterdam':'Europe/Amsterdam','rome':'Europe/Rome','madrid':'Europe/Madrid',
+  'zurich':'Europe/Zurich','vienna':'Europe/Vienna','stockholm':'Europe/Stockholm',
+  'dubai':'Asia/Dubai','singapore':'Asia/Singapore','bangkok':'Asia/Bangkok',
+  'hong kong':'Asia/Hong_Kong','hongkong':'Asia/Hong_Kong',
+  'sydney':'Australia/Sydney','melbourne':'Australia/Melbourne','brisbane':'Australia/Brisbane',
+  'auckland':'Pacific/Auckland','seoul':'Asia/Seoul',
+  'beijing':'Asia/Shanghai','shanghai':'Asia/Shanghai','taipei':'Asia/Taipei',
+  'jakarta':'Asia/Jakarta','bali':'Asia/Makassar','manila':'Asia/Manila',
+  'delhi':'Asia/Kolkata','mumbai':'Asia/Kolkata','india':'Asia/Kolkata',
+  'cairo':'Africa/Cairo','nairobi':'Africa/Nairobi',
+  'moscow':'Europe/Moscow','istanbul':'Europe/Istanbul',
+  'guam':'Pacific/Guam','saipan':'Pacific/Saipan',
+  'sao paulo':'America/Sao_Paulo','mexico':'America/Mexico_City',
+};
+
+function getAllTz(){
+  try{return Intl.supportedValuesOf('timeZone');}
+  catch{return['Asia/Tokyo','America/New_York','Europe/London','Pacific/Honolulu'];}
+}
+
+function searchTz(q){
+  if(!q||q.length<2) return [];
+  const ql=q.toLowerCase();
+  const res=[];
+  Object.entries(TZ_ALIASES).forEach(([alias,tz])=>{
+    if(alias.includes(ql)&&!res.includes(tz)) res.push(tz);
+  });
+  getAllTz().forEach(tz=>{
+    if(tz.toLowerCase().includes(ql.replace(/ /g,'_'))&&!res.includes(tz)) res.push(tz);
+  });
+  return res.slice(0,8);
+}
+
+function getTzOffset(tz){
+  try{
+    const s=new Intl.DateTimeFormat('en-US',{timeZone:tz,timeZoneName:'shortOffset'})
+      .formatToParts(new Date()).find(p=>p.type==='timeZoneName');
+    return s?s.value:'';
+  }catch{return '';}
+}
+
+function getTzCity(tz){return tz.split('/').pop().replace(/_/g,' ');}
+
+function getStays(){return LS.getJ('stays',[]);}
+function saveStays(a){LS.setJ('stays',a);}
+
+function getActiveStay(dateStr){
+  for(const s of getStays()){
+    const from=s.startDate||'0000-01-01';
+    const to  =s.endDate  ||'9999-12-31';
+    if(dateStr>=from&&dateStr<=to) return s;
+  }
+  return null;
+}
+
+let _selectedTz='';
+function onTzSearch(val){
+  const drop=document.getElementById('tzDropdown');
+  if(!val||val.length<2){drop.style.display='none';return;}
+  const res=searchTz(val);
+  if(!res.length){drop.style.display='none';return;}
+  drop.innerHTML=res.map(tz=>`
+    <div class="tz-option" onclick="selectTz('${tz}')">
+      <div class="tz-opt-name">${tz}</div>
+      <div class="tz-opt-sub">${getTzOffset(tz)} · ${getTzCity(tz)}</div>
+    </div>`).join('');
+  drop.style.display='block';
+}
+
+function selectTz(tz){
+  _selectedTz=tz;
+  document.getElementById('tzSearch').value=tz;
+  document.getElementById('tzDropdown').style.display='none';
+  document.getElementById('tzSelectedDisplay').style.display='block';
+  document.getElementById('tzSelectedLabel').textContent=`${tz}  ${getTzOffset(tz)}`;
+}
+
+function addStay(){
+  if(!_selectedTz){showToast('タイムゾーンを選択してください','error');return;}
+  const s=document.getElementById('stayStart').value;
+  const e=document.getElementById('stayEnd').value;
+  if(s&&e&&s>e){showToast('終了日は開始日以降にしてください','error');return;}
+  const stays=getStays();
+  stays.push({tz:_selectedTz,startDate:s,endDate:e});
+  saveStays(stays);
+  _selectedTz='';
+  document.getElementById('tzSearch').value='';
+  document.getElementById('stayStart').value='';
+  document.getElementById('stayEnd').value='';
+  document.getElementById('tzSelectedDisplay').style.display='none';
+  renderStayList();
+  showToast('滞在先を追加しました ✓','success');
+}
+
+function removeStay(i){
+  const stays=getStays();stays.splice(i,1);saveStays(stays);renderStayList();
+}
+
+function renderStayList(){
+  const list=document.getElementById('stayList');if(!list)return;
+  const stays=getStays();
+  if(!stays.length){
+    list.innerHTML='<div style="font-size:11px;color:var(--ink-muted);font-family:\'DM Mono\',monospace;font-style:italic">滞在先が登録されていません</div>';
+    return;
+  }
+  list.innerHTML=stays.map((s,i)=>{
+    const period=s.startDate&&s.endDate?`${s.startDate} 〜 ${s.endDate}`
+      :s.startDate?`${s.startDate} 〜`
+      :s.endDate?`〜 ${s.endDate}`:'期間指定なし（常時）';
+    return `<div class="tz-stay-item">
+      <div class="tz-stay-info">
+        <div class="tz-stay-name">${s.tz} <span style="color:var(--ink-muted);font-size:10px">${getTzOffset(s.tz)}</span></div>
+        <div class="tz-stay-period">${period}</div>
+      </div>
+      <button class="btn-kc" onclick="removeStay(${i})">削除</button>
+    </div>`;
+  }).join('');
+}
+
+// 時差計算: dateStr+timeStr をfromTz解釈してUTCミリ秒を返す
+function localToUtcMs(dateStr,timeStr,fromTz){
+  const approx=new Date(`${dateStr}T${timeStr}:00Z`);
+  const inTz=new Intl.DateTimeFormat('sv-SE',{
+    timeZone:fromTz,year:'numeric',month:'2-digit',day:'2-digit',
+    hour:'2-digit',minute:'2-digit'
+  }).format(approx).replace(' ','T');
+  return approx.getTime()+(approx.getTime()-new Date(inTz+'Z').getTime());
+}
+
+// UTCミリ秒をtimeZoneでフォーマット → {date, time}
+function utcMsToLocal(ms,tz){
+  const p=new Intl.DateTimeFormat('sv-SE',{
+    timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit',
+    hour:'2-digit',minute:'2-digit'
+  }).format(new Date(ms)).split(' ');
+  return{date:p[0],time:p[1]};
+}
+
+function checkTzAlert(date,startTime,endTime){
+  const alertEl=document.getElementById('tzAlert');
+  const body   =document.getElementById('tzAlertBody');
+  const execBtn=document.getElementById('execBtn');
+  if(!alertEl) return;
+  if(!date||!startTime){
+    alertEl.style.display='none';execBtn.style.display='';
+    S._activeTzStay=null;return;
+  }
+  const stay=getActiveStay(date);
+  if(!stay||stay.tz==='Asia/Tokyo'){
+    alertEl.style.display='none';execBtn.style.display='';
+    S._activeTzStay=null;return;
+  }
+  S._activeTzStay=stay;
+  const city=getTzCity(stay.tz);
+  const off =getTzOffset(stay.tz);
+
+  const utcStart=localToUtcMs(date,startTime,stay.tz);
+  const jpStart =utcMsToLocal(utcStart,'Asia/Tokyo');
+  const dayLabel=jpStart.date!==date?(jpStart.date>date?'翌日 ':'前日 '):'';
+
+  let timeRow=`入力した時間：<strong>${startTime}</strong>`;
+  let localRow=`🌏 ${city}（${off}）：<strong>${startTime}</strong>`;
+  let jpRow   =`🇯🇵 日本時間（JST）：<strong>${dayLabel}${jpStart.time}</strong>`;
+
+  if(endTime){
+    const utcEnd=localToUtcMs(date,endTime,stay.tz);
+    const jpEnd =utcMsToLocal(utcEnd,'Asia/Tokyo');
+    const endLabel=jpEnd.date!==date?(jpEnd.date>date?'翌日 ':'前日 '):'';
+    timeRow =`入力した時間：<strong>${startTime} 〜 ${endTime}</strong>`;
+    localRow=`🌏 ${city}（${off}）：<strong>${startTime} 〜 ${endTime}</strong>`;
+    jpRow   =`🇯🇵 日本時間（JST）：<strong>${dayLabel}${jpStart.time} 〜 ${endLabel}${jpEnd.time}</strong>`;
+  }
+
+  body.innerHTML=`${timeRow}<br>${localRow}<br>${jpRow}`;
+  alertEl.style.display='block';
+  execBtn.style.display='none'; // tz選択ボタンで代替
+}
+
+async function execWithTz(mode){
+  S.tzMode=mode;
+  document.getElementById('tzAlert').style.display='none';
+  document.getElementById('execBtn').style.display='';
+  await execAction();
+}
 
 // ══════════════════════════════════════════════════════
 // NAVIGATION
@@ -1008,6 +1260,7 @@ function applyParsed(d){
     execBtn.className='btn btn-primary';
     reparseBtn.style.display='';
     S.pendingAction={type:'add',data:d};
+    checkTzAlert(d.date, d.startTime, d.endTime);
   } else {
     // edit or delete: find matching events
     const kw=(d.searchKeyword||d.title||'').toLowerCase();
@@ -1124,6 +1377,11 @@ function showSingleMatch(ev, d){
     document.getElementById('fLoc').value=d.location||ev.location||'';
     document.getElementById('fNotes').value=d.notes||ev.description||'';
     S.pendingAction={type:'edit',targetId:ev.id,data:d};
+    checkTzAlert(
+      document.getElementById('fDate').value,
+      document.getElementById('fStart').value,
+      document.getElementById('fEnd').value
+    );
   }
 }
 
@@ -1138,6 +1396,10 @@ async function execAction(){
 
   const btn=document.getElementById('execBtn');
   btn.disabled=true;
+
+  // 使用タイムゾーン（時差アラートで選択された場合はそちらを優先）
+  const _tz=(S.tzMode==='local'&&S._activeTzStay)?S._activeTzStay.tz:'Asia/Tokyo';
+  S.tzMode=null;
 
   // ── ADD ──
   if(action.type==='add'){
@@ -1161,8 +1423,8 @@ async function execAction(){
     const ok=await ensureToken();
     if(!ok){btn.innerHTML=SAVE_ICON;btn.disabled=false;return;}
     try{
-      const r=await gcalPost('/calendars/primary/events',{summary:title,location:loc,description:notes,start:{dateTime:`${date}T${start}:00`,timeZone:'Asia/Tokyo'},end:{dateTime:`${date}T${end}:00`,timeZone:'Asia/Tokyo'}});
-      if(r.status===401){const ref=await ensureToken(true);if(!ref){btn.disabled=false;return;}await gcalPost('/calendars/primary/events',{summary:title,location:loc,description:notes,start:{dateTime:`${date}T${start}:00`,timeZone:'Asia/Tokyo'},end:{dateTime:`${date}T${end}:00`,timeZone:'Asia/Tokyo'}});}
+      const r=await gcalPost('/calendars/primary/events',{summary:title,location:loc,description:notes,start:{dateTime:`${date}T${start}:00`,timeZone:_tz},end:{dateTime:`${date}T${end}:00`,timeZone:_tz}});
+      if(r.status===401){const ref=await ensureToken(true);if(!ref){btn.disabled=false;return;}await gcalPost('/calendars/primary/events',{summary:title,location:loc,description:notes,start:{dateTime:`${date}T${start}:00`,timeZone:_tz},end:{dateTime:`${date}T${end}:00`,timeZone:_tz}});}
       addHistory({label:'追加',title,date,start,end,status:'success'});
       showToast('カレンダーに追加しました ✓','success');
       clearCard(); await fetchEvents();
@@ -1195,7 +1457,7 @@ async function execAction(){
     const ok=await ensureToken();
     if(!ok){btn.disabled=false;return;}
     try{
-      const body={summary:title,location:loc,description:notes,start:{dateTime:`${date}T${start}:00`,timeZone:'Asia/Tokyo'},end:{dateTime:`${date}T${end}:00`,timeZone:'Asia/Tokyo'}};
+      const body={summary:title,location:loc,description:notes,start:{dateTime:`${date}T${start}:00`,timeZone:_tz},end:{dateTime:`${date}T${end}:00`,timeZone:_tz}};
       let r=await gcalPatch('/calendars/primary/events/'+action.targetId,body);
       if(r.status===401){await ensureToken(true);r=await gcalPatch('/calendars/primary/events/'+action.targetId,body);}
       if(!r.ok) throw new Error((await r.json()).error?.message||'APIエラー');
@@ -1238,7 +1500,9 @@ function clearCard(){
   document.getElementById('parseCard').classList.remove('visible');
   document.getElementById('transcriptText').textContent='';
   document.getElementById('transcriptArea').classList.remove('active');
-  S.pendingAction=null;
+  document.getElementById('tzAlert').style.display='none';
+  document.getElementById('execBtn').style.display='';
+  S.pendingAction=null; S.tzMode=null; S._activeTzStay=null;
   setMode('add');
 }
 
@@ -1296,11 +1560,14 @@ function refreshUpcoming(){
     const dow=['日','月','火','水','木','金','土'][dt.getDay()];
     const isToday=dt.toDateString()===new Date().toDateString();
     const time=ev.start?.dateTime?`${ev.start.dateTime.slice(11,16)} – ${ev.end.dateTime.slice(11,16)}`:'終日';
+    const evTz=ev.start?.timeZone||'Asia/Tokyo';
+    const dateStr=(ev.start?.dateTime||ev.start?.date||'').slice(0,10);
+    const isForeign=evTz!=='Asia/Tokyo'||!!getActiveStay(dateStr);
     return `<div class="upcoming-item" onclick="openDetailFromEvent('${ev.id}')">
       <div class="upcoming-date-block"><div class="upcoming-day">${day}</div><div class="upcoming-dow">${dow}</div></div>
       <div class="upcoming-divider"></div>
       <div class="upcoming-info">
-        <div class="upcoming-title">${ev.summary||'無題'}${isToday?'<span class="today-badge">今日</span>':''}</div>
+        <div class="upcoming-title">${ev.summary||'無題'}${isToday?'<span class="today-badge">今日</span>':''}${isForeign?' 🌏':''}</div>
         <div class="upcoming-time">${time}</div>
         ${ev.location?`<div class="upcoming-loc">📍 ${ev.location}</div>`:''}
       </div>
@@ -1511,6 +1778,17 @@ function delay(ms){ return new Promise(r=>setTimeout(r,ms)); }
 initSpeech();
 refreshDots();
 refreshHomeGcalBtn();
+renderStayList();
+document.getElementById('fDate').addEventListener('change',()=>checkTzAlert(
+  document.getElementById('fDate').value,
+  document.getElementById('fStart').value,
+  document.getElementById('fEnd').value
+));
+document.getElementById('fStart').addEventListener('change',()=>checkTzAlert(
+  document.getElementById('fDate').value,
+  document.getElementById('fStart').value,
+  document.getElementById('fEnd').value
+));
 document.getElementById('autoParseToggle').checked=getPref('autoParse',false);
 
 // GIS初期化（非同期読み込み完了を待つ）
