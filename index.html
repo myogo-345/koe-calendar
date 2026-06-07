@@ -1437,21 +1437,29 @@ async function runParse(){
 注意:変更しない項目は空文字。searchKeywordは元の予定を特定するための名前や件名。`;
     }
 
+    console.log('gemini key exists:', !!key);
+    console.log('gemini key length:', key?.length);
     const res=await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
       {method:'POST',headers:{'Content-Type':'application/json'},
        body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json'}})}
     );
+    if(!res.ok){
+      const errText=await res.text();
+      console.error('Gemini HTTP error:', res.status, errText);
+      throw new Error(`HTTP ${res.status}: ${errText.slice(0,200)}`);
+    }
     const data=await res.json();
+    console.log('Gemini response:', JSON.stringify(data).slice(0,300));
     if(data.error) throw new Error(data.error.message);
     const raw=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
     const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim());
     applyParsed(parsed);
   }catch(e){
-    console.error(e);
+    console.error('Gemini API error:', e);
     // fallback
     applyParsed(demoFallback(text));
-    showToast('デモ解析（API失敗）');
+    showToast('API失敗: ' + (e.message||String(e)), 'error');
   }finally{
     btn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" fill="currentColor"/></svg> AIで解析';
     btn.disabled=false;
