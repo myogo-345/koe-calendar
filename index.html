@@ -985,7 +985,7 @@ function renderStayList(){
     html+=`<div class="stay-section-label">🔄 自動検知（カレンダーから）</div>`;
     html+=auto.map((s,i)=>{
       // endDateはexclusive → 表示は1日戻す
-      const endDisp=s.endDate?(()=>{const d=new Date(s.endDate+'T00:00');d.setDate(d.getDate()-1);return d.toISOString().slice(0,10);})():s.startDate;
+      const endDisp=s.endDate?addDays(s.endDate,-1):s.startDate;
       const period=`${s.startDate} 〜 ${endDisp}`;
       const city=s.cityName||getTzCity(s.tz);
       return `<div class="tz-stay-item auto">
@@ -1574,10 +1574,8 @@ function showSingleMatch(ev, d){
     document.getElementById('fNotes').value=d.notes||ev.description||'';
     setAlldayMode(!!evIsAllDay);
     if(evIsAllDay&&ev.end?.date){
-      // Google Calは終了日がexclusive → 1日戻して表示
-      const endD=new Date(ev.end.date+'T00:00');
-      endD.setDate(endD.getDate()-1);
-      document.getElementById('fEndDate').value=endD.toISOString().slice(0,10);
+      // Google Calは終了日がexclusive → 1日戻してフォームに表示
+      document.getElementById('fEndDate').value=addDays(ev.end.date,-1);
     }
     S.pendingAction={type:'edit',targetId:ev.id,data:d,isAllDay:!!evIsAllDay};
     if(!evIsAllDay) checkTzAlert(
@@ -1620,11 +1618,10 @@ async function execAction(){
       if(!title||!date||!start){showToast('タイトルと日時は必須です','error');btn.disabled=false;return;}
     }
 
-    // 終日イベントの終了日（Googleは翌日exclusive）
+    // 終日イベントの終了日（フォーム値はinclusive → +1日でexclusiveにしてAPIへ）
     function calcEndDate(){
       const raw=document.getElementById('fEndDate').value||date;
-      const d=new Date(raw+'T00:00'); d.setDate(d.getDate()+1);
-      return d.toISOString().slice(0,10);
+      return addDays(raw,1);
     }
 
     btn.innerHTML='<div class="sp"></div> 追加中…';
@@ -1672,8 +1669,7 @@ async function execAction(){
 
     function calcEditEndDate(){
       const raw=document.getElementById('fEndDate').value||date;
-      const d=new Date(raw+'T00:00'); d.setDate(d.getDate()+1);
-      return d.toISOString().slice(0,10);
+      return addDays(raw,1);
     }
 
     const confirmDetail=isAllDay
@@ -2030,24 +2026,23 @@ function showToast(msg,type=''){
   _toastTimer=setTimeout(()=>t.classList.remove('show'),2800);
 }
 
-// 終日イベントのexclusive end.date → 表示用inclusive日付
-function alldayEndInclusive(endDateExclusive){
-  const d=new Date(endDateExclusive+'T00:00');
-  d.setDate(d.getDate()-1);
-  return d;
+// 日付文字列に n 日加算（UTC固定でタイムゾーンの影響を受けない）
+function addDays(dateStr,n){
+  const [y,m,d]=dateStr.split('-').map(Number);
+  return new Date(Date.UTC(y,m-1,d+n)).toISOString().slice(0,10);
 }
 
 // 終日・時間指定両対応の時刻表示文字列
 function formatEventTime(ev){
   if(ev.start?.dateTime) return `${ev.start.dateTime.slice(11,16)} – ${ev.end.dateTime.slice(11,16)}`;
-  // 終日イベント
+  // 終日イベント（end.dateはexclusive → -1日してinclusive表示）
   if(ev.start?.date&&ev.end?.date){
-    const endD=alldayEndInclusive(ev.end.date);
-    const endInclusive=endD.toISOString().slice(0,10);
+    const endInclusive=addDays(ev.end.date,-1);
     if(endInclusive===ev.start.date) return '終日';
     // 複数日: 日付範囲を表示
-    const sd=new Date(ev.start.date+'T00:00');
-    return `${sd.getMonth()+1}/${sd.getDate()} 〜 ${endD.getMonth()+1}/${endD.getDate()} 終日`;
+    const [,sm,sd]=ev.start.date.split('-').map(Number);
+    const [,em,ed]=endInclusive.split('-').map(Number);
+    return `${sm}/${sd} 〜 ${em}/${ed} 終日`;
   }
   return '終日';
 }
