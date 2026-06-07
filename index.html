@@ -1,0 +1,1483 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Koe — 声で予定を</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@300;400&family=DM+Mono:ital,wght@0,300;1,300&display=swap" rel="stylesheet">
+<script src="https://accounts.google.com/gsi/client" async></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#F7F4EF;--surface:#FFFDF9;--ink:#2A2620;--ink-muted:#8C8880;
+  --accent:#C45A2A;--accent-light:#F0E0D6;--green:#3A7D5E;--green-light:#D6EDE4;
+  --blue:#2A6496;--blue-light:#D6E8F0;
+  --border:#E4E0D8;--shadow:rgba(42,38,32,.08);--red:#C0392B;--red-light:#FAEAEA;
+}
+html,body{height:100%;background:var(--bg);color:var(--ink);font-family:'Noto Serif JP',serif;font-weight:300;-webkit-tap-highlight-color:transparent}
+.page{display:none;min-height:100vh}
+.page.active{display:block}
+.shell{min-height:100vh;display:grid;grid-template-rows:auto 1fr auto;max-width:680px;margin:0 auto;padding:0 20px}
+
+/* ── Header ── */
+header{padding:28px 0 22px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)}
+.logo{font-size:24px;letter-spacing:.12em}.logo span{color:var(--accent)}
+.tagline{font-size:11px;color:var(--ink-muted);font-family:'DM Mono',monospace;font-style:italic}
+.header-nav{margin-left:auto;display:flex;gap:6px}
+.nav-btn{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-muted);font-family:'DM Mono',monospace;cursor:pointer;padding:5px 10px;border:1px solid var(--border);border-radius:20px;background:var(--surface);transition:all .2s;white-space:nowrap}
+.nav-btn:hover{border-color:var(--accent);color:var(--accent)}
+.nav-btn.active-page{border-color:var(--accent);color:var(--accent);background:var(--accent-light)}
+.sdot{width:6px;height:6px;border-radius:50%;background:var(--ink-muted);flex-shrink:0;transition:background .3s}
+.sdot.ok{background:var(--green)}.sdot.warn{background:#E8A830}.sdot.err{background:var(--red)}
+
+/* ── Main ── */
+main{padding:28px 0 24px}
+.section-head{font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.12em;color:var(--ink-muted);margin-bottom:14px;display:flex;align-items:center;gap:10px}
+.section-head::after{content:'';flex:1;height:1px;background:var(--border)}
+
+/* ── Voice ── */
+.voice-section{text-align:center;margin-bottom:36px}
+.mic-wrap{position:relative;display:inline-block;margin-bottom:20px}
+.mic-btn{width:84px;height:84px;border-radius:50%;border:none;background:var(--surface);box-shadow:0 2px 12px var(--shadow),0 0 0 1px var(--border);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .25s cubic-bezier(.34,1.56,.64,1);position:relative;z-index:2}
+.mic-btn:active{transform:scale(.96)}
+.mic-btn.recording{background:var(--accent);box-shadow:0 4px 24px rgba(196,90,42,.35)}
+.pulse-ring{position:absolute;inset:-8px;border-radius:50%;border:2px solid var(--accent);opacity:0;z-index:1}
+.recording .pulse-ring{animation:pulse 1.4s ease-out infinite}
+@keyframes pulse{0%{opacity:.6;transform:scale(1)}100%{opacity:0;transform:scale(1.5)}}
+.pulse-ring:nth-child(2){animation-delay:.7s}
+/* ── Mode Selector ── */
+.mode-selector{display:flex;gap:0;margin-bottom:20px;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface)}
+.mode-btn{flex:1;padding:10px 8px;border:none;background:transparent;font-size:12px;font-family:'DM Mono',monospace;cursor:pointer;transition:all .2s;color:var(--ink-muted);display:flex;align-items:center;justify-content:center;gap:5px;position:relative}
+.mode-btn:not(:last-child)::after{content:'';position:absolute;right:0;top:20%;height:60%;width:1px;background:var(--border)}
+.mode-btn:hover{color:var(--ink);background:var(--bg)}
+.mode-btn.active-add{background:var(--accent-light);color:var(--accent);font-weight:400}
+.mode-btn.active-edit{background:var(--blue-light);color:var(--blue);font-weight:400}
+.mode-btn.active-delete{background:var(--red-light);color:var(--red);font-weight:400}
+.mode-btn.active-add::after,.mode-btn.active-edit::after,.mode-btn.active-delete::after{display:none}
+.mode-hint{font-size:11px;font-family:'DM Mono',monospace;color:var(--ink-muted);text-align:center;margin-bottom:16px;font-style:italic;min-height:16px}
+.mic-label{font-size:12px;color:var(--ink-muted);font-family:'DM Mono',monospace;height:18px;transition:color .2s}
+.mic-label.active{color:var(--accent)}
+
+/* ── Transcript ── */
+.transcript-area{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px;margin-bottom:18px;min-height:72px;display:flex;align-items:flex-start;gap:10px;transition:border-color .2s}
+.transcript-area.active{border-color:var(--accent)}
+.transcript-icon{color:var(--ink-muted);flex-shrink:0;margin-top:2px}
+.transcript-text{font-size:15px;line-height:1.7;min-height:40px;flex:1;white-space:pre-wrap;word-break:break-word;outline:none;border:none;background:transparent;font-family:'Noto Serif JP',serif;font-weight:300}
+.transcript-text:empty::before{content:attr(data-placeholder);color:var(--ink-muted);font-style:italic;pointer-events:none}
+.transcript-hint{font-size:11px;color:var(--ink-muted);font-family:'DM Mono',monospace;font-style:italic;text-align:center;margin-top:-10px;margin-bottom:18px;opacity:.7}
+
+/* ── Quick chips ── */
+.chip-row{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:24px}
+.chip{font-size:11px;font-family:'DM Mono',monospace;color:var(--ink-muted);background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:5px 12px;cursor:pointer;transition:all .2s;font-style:italic}
+.chip:hover,.chip:active{border-color:var(--accent);color:var(--accent);background:var(--accent-light)}
+.chip.edit-chip:hover,.chip.edit-chip:active{border-color:var(--blue);color:var(--blue);background:var(--blue-light)}
+.chip.del-chip:hover,.chip.del-chip:active{border-color:var(--red);color:var(--red);background:var(--red-light)}
+
+/* ── Parse / Action btn ── */
+.center-btn-row{text-align:center;margin-bottom:20px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 18px;border-radius:10px;font-size:12px;font-family:'DM Mono',monospace;cursor:pointer;border:1px solid var(--border);transition:all .2s}
+.btn-ai{background:var(--accent-light);color:var(--accent);border-color:transparent}
+.btn-ai:hover{background:var(--accent);color:#fff}
+.btn-primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+.btn-primary:hover{background:var(--accent);border-color:var(--accent)}
+.btn-primary:disabled{opacity:.4;cursor:not-allowed}
+.btn-secondary{background:transparent;color:var(--ink-muted)}
+.btn-secondary:hover{border-color:var(--ink-muted);color:var(--ink)}
+.btn-danger{background:var(--red-light);color:var(--red);border-color:transparent}
+.btn-danger:hover{background:var(--red);color:#fff}
+
+/* ── Parse Card ── */
+.parse-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:20px;opacity:0;transform:translateY(8px);transition:all .35s cubic-bezier(.34,1.2,.64,1);pointer-events:none}
+.parse-card.visible{opacity:1;transform:translateY(0);pointer-events:auto}
+.card-header{padding:10px 18px;font-size:11px;font-family:'DM Mono',monospace;letter-spacing:.08em;display:flex;align-items:center;gap:7px}
+.card-header.add{background:var(--accent-light);color:var(--accent)}
+.card-header.edit{background:var(--blue-light);color:var(--blue)}
+.card-header.delete{background:var(--red-light);color:var(--red)}
+.parse-fields{padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.pf{display:grid;grid-template-columns:72px 1fr;gap:10px;align-items:start}
+.pf label{font-size:11px;font-family:'DM Mono',monospace;color:var(--ink-muted);padding-top:8px}
+.pf input,.pf textarea{border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;font-family:'Noto Serif JP',serif;font-weight:300;color:var(--ink);background:var(--bg);transition:border-color .2s;width:100%}
+.pf input:focus,.pf textarea:focus{outline:none;border-color:var(--accent)}
+.pf textarea{resize:vertical;min-height:52px}
+.dt-row{display:flex;gap:6px}.dt-row input{flex:1}
+.card-actions{display:flex;gap:8px;padding:12px 18px 16px;border-top:1px solid var(--border);flex-wrap:wrap}
+.card-actions .btn{flex:1;min-width:80px}
+
+/* ── Confirm Dialog ── */
+.confirm-overlay{position:fixed;inset:0;background:rgba(42,38,32,.45);backdrop-filter:blur(3px);z-index:150;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
+.confirm-overlay.show{opacity:1;pointer-events:auto}
+.confirm-box{background:var(--surface);border:1px solid var(--border);border-radius:18px;padding:28px;max-width:360px;width:90%;box-shadow:0 16px 48px rgba(42,38,32,.15)}
+.confirm-box h3{font-size:17px;font-weight:400;margin-bottom:10px}
+.confirm-box p{font-size:13px;color:var(--ink-muted);font-family:'DM Mono',monospace;line-height:1.6;margin-bottom:22px}
+.confirm-box p strong{color:var(--ink);font-weight:400}
+.confirm-btns{display:flex;gap:10px}
+.confirm-btns .btn{flex:1}
+
+/* ── Upcoming ── */
+.upcoming-section{margin-bottom:32px}
+.upcoming-list{display:flex;flex-direction:column;gap:8px}
+.upcoming-item{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:all .2s}
+.upcoming-item:hover{border-color:var(--accent-light);transform:translateY(-1px);box-shadow:0 2px 8px var(--shadow)}
+.upcoming-date-block{text-align:center;min-width:38px}
+.upcoming-day{font-size:18px;font-weight:400;line-height:1}
+.upcoming-dow{font-size:10px;font-family:'DM Mono',monospace;color:var(--ink-muted);margin-top:2px}
+.upcoming-divider{width:1px;height:36px;background:var(--border);flex-shrink:0}
+.upcoming-info{flex:1;min-width:0}
+.upcoming-title{font-size:14px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.upcoming-time{font-size:11px;font-family:'DM Mono',monospace;color:var(--ink-muted);margin-top:2px}
+.upcoming-loc{font-size:11px;font-family:'DM Mono',monospace;color:var(--ink-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.upcoming-arrow{color:var(--border);flex-shrink:0}
+.today-badge{display:inline-block;font-size:9px;font-family:'DM Mono',monospace;background:var(--accent);color:#fff;padding:1px 6px;border-radius:4px;margin-left:6px;vertical-align:middle}
+
+/* ── History ── */
+.history-list{display:flex;flex-direction:column;gap:8px}
+.history-item{background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:12px 16px;display:flex;align-items:center;gap:12px;animation:slideIn .3s ease}
+@keyframes slideIn{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
+.history-item.success .hdot{background:var(--green)}
+.history-item.error   .hdot{background:var(--red)}
+.hdot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--border)}
+.h-content{flex:1;min-width:0}
+.h-title{font-size:13px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.h-meta{font-size:11px;color:var(--ink-muted);font-family:'DM Mono',monospace;margin-top:2px}
+.h-label{font-size:11px;font-family:'DM Mono',monospace;color:var(--ink-muted);flex-shrink:0}
+
+/* ══════════ CALENDAR PAGE ══════════ */
+.cal-controls{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.cal-month-label{font-size:16px;font-weight:400}
+.cal-nav-btn{width:32px;height:32px;border:1px solid var(--border);border-radius:8px;background:var(--surface);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--ink-muted);transition:all .2s}
+.cal-nav-btn:hover{border-color:var(--accent);color:var(--accent)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:24px}
+.cal-dow{text-align:center;font-size:10px;font-family:'DM Mono',monospace;color:var(--ink-muted);padding:6px 0}
+.cal-cell{min-height:56px;border:1px solid var(--border);border-radius:8px;padding:4px 5px;background:var(--surface);cursor:pointer;transition:all .15s;position:relative}
+.cal-cell:hover{border-color:var(--accent-light)}
+.cal-cell.today{border-color:var(--accent);background:var(--accent-light)}
+.cal-cell.other-month{opacity:.4}
+.cal-cell.selected{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-light)}
+.cal-num{font-size:11px;font-family:'DM Mono',monospace;color:var(--ink-muted);margin-bottom:2px}
+.cal-cell.today .cal-num{color:var(--accent);font-weight:bold}
+.cal-dot-row{display:flex;flex-wrap:wrap;gap:2px}
+.cal-event-dot{width:5px;height:5px;border-radius:50%;background:var(--accent);flex-shrink:0}
+.cal-event-dot.google{background:var(--green)}
+
+.day-events-section{margin-bottom:24px}
+.day-events-title{font-size:13px;font-family:'DM Mono',monospace;color:var(--ink-muted);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.event-list{display:flex;flex-direction:column;gap:8px}
+.event-item{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;display:flex;align-items:flex-start;gap:12px;cursor:pointer;transition:all .2s}
+.event-item:hover{border-color:var(--accent-light);transform:translateY(-1px)}
+.event-time-block{min-width:44px;text-align:center}
+.event-time{font-size:12px;font-family:'DM Mono',monospace;color:var(--ink-muted)}
+.event-body{flex:1;min-width:0}
+.event-title{font-size:14px;font-weight:400}
+.event-sub{font-size:11px;font-family:'DM Mono',monospace;color:var(--ink-muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.event-badge{font-size:10px;font-family:'DM Mono',monospace;padding:2px 7px;border-radius:4px;flex-shrink:0;margin-top:2px}
+.event-badge.google{background:var(--green-light);color:var(--green)}
+.event-badge.local{background:var(--accent-light);color:var(--accent)}
+.event-actions{display:flex;gap:6px;margin-top:10px}
+.event-actions .btn{font-size:11px;padding:6px 12px}
+
+/* Detail sheet */
+.detail-sheet{position:fixed;inset:0;z-index:120;display:flex;flex-direction:column;justify-content:flex-end;pointer-events:none}
+.detail-sheet.show{pointer-events:auto}
+.detail-backdrop{position:absolute;inset:0;background:rgba(42,38,32,.4);opacity:0;transition:opacity .25s}
+.detail-sheet.show .detail-backdrop{opacity:1}
+.detail-panel{position:relative;background:var(--surface);border-radius:20px 20px 0 0;padding:28px 24px 40px;transform:translateY(100%);transition:transform .3s cubic-bezier(.34,1.1,.64,1);max-height:85vh;overflow-y:auto}
+.detail-sheet.show .detail-panel{transform:translateY(0)}
+.detail-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 20px}
+.detail-title{font-size:20px;font-weight:400;margin-bottom:6px}
+.detail-row{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;font-size:13px;font-family:'DM Mono',monospace;color:var(--ink-muted)}
+.detail-row svg{flex-shrink:0;margin-top:1px}
+.detail-row span{color:var(--ink);line-height:1.5}
+.detail-divider{height:1px;background:var(--border);margin:16px 0}
+.detail-btn-row{display:flex;gap:10px;margin-top:20px}
+.detail-btn-row .btn{flex:1}
+
+/* ══════════ SETTINGS PAGE ══════════ */
+.s-section{margin-bottom:32px}
+.s-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.s-row{padding:18px 20px;display:flex;align-items:flex-start;gap:14px;border-bottom:1px solid var(--border)}
+.s-row:last-child{border-bottom:none}
+.s-icon{width:34px;height:34px;border-radius:9px;background:var(--accent-light);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--accent);margin-top:2px}
+.s-body{flex:1;min-width:0}
+.s-label{font-size:14px;font-weight:400;margin-bottom:3px}
+.s-desc{font-size:11px;color:var(--ink-muted);font-family:'DM Mono',monospace;line-height:1.6;margin-bottom:12px}
+.s-desc a{color:var(--accent);text-decoration:underline;text-underline-offset:2px}
+.ki-wrap{display:flex;gap:7px;flex-wrap:wrap}
+.ki{flex:1;min-width:140px;border:1px solid var(--border);border-radius:9px;padding:9px 12px;font-size:12px;font-family:'DM Mono',monospace;background:var(--bg);color:var(--ink);outline:none;transition:border-color .2s}
+.ki:focus{border-color:var(--accent)}
+.btn-ks{padding:9px 16px;border-radius:9px;border:none;background:var(--accent);color:#fff;font-size:12px;font-family:'DM Mono',monospace;cursor:pointer;white-space:nowrap}
+.btn-ks:hover{opacity:.85}
+.btn-kc{padding:9px 12px;border-radius:9px;border:1px solid var(--border);background:transparent;font-size:11px;font-family:'DM Mono',monospace;cursor:pointer;color:var(--ink-muted);transition:all .2s}
+.btn-kc:hover{border-color:var(--red);color:var(--red)}
+.f-status{display:flex;align-items:center;gap:7px;margin-top:9px;font-size:11px;font-family:'DM Mono',monospace;color:var(--ink-muted)}
+.info-box{background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:12px 14px;font-size:11px;font-family:'DM Mono',monospace;color:var(--ink-muted);line-height:1.8;margin-top:12px}
+.info-box strong{color:var(--ink);font-weight:400}
+.info-box code{background:var(--border);padding:1px 4px;border-radius:3px;font-size:10px}
+.btn-gcal{display:flex;align-items:center;gap:9px;padding:10px 16px;border-radius:9px;border:1px solid var(--border);background:var(--surface);font-size:12px;font-family:'DM Mono',monospace;cursor:pointer;color:var(--ink);transition:all .2s;width:100%}
+.btn-gcal:hover{border-color:#4285F4;color:#4285F4}
+.btn-gcal.connected{border-color:var(--green);color:var(--green);background:var(--green-light)}
+.token-bar{margin-top:10px}
+.token-timer{display:flex;align-items:center;gap:8px;font-size:11px;font-family:'DM Mono',monospace;color:var(--ink-muted);margin-bottom:5px}
+.token-prog-wrap{height:3px;background:var(--border);border-radius:3px;overflow:hidden}
+.token-prog{height:100%;background:var(--green);border-radius:3px;transition:width 1s linear,background .5s}
+.token-prog.warn{background:#E8A830}.token-prog.exp{background:var(--red)}
+.btn-gdis{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:transparent;font-size:11px;font-family:'DM Mono',monospace;cursor:pointer;color:var(--ink-muted);transition:all .2s;margin-top:8px}
+.btn-gdis:hover{border-color:var(--red);color:var(--red)}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--border)}
+.toggle-row:last-child{border-bottom:none}
+.tg-label{font-size:13px}.tg-desc{font-size:11px;color:var(--ink-muted);font-family:'DM Mono',monospace;margin-top:2px}
+.toggle{position:relative;width:38px;height:21px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0}
+.tg-sl{position:absolute;inset:0;background:var(--border);border-radius:21px;cursor:pointer;transition:.2s}
+.tg-sl::before{content:'';position:absolute;width:15px;height:15px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s}
+.toggle input:checked+.tg-sl{background:var(--green)}
+.toggle input:checked+.tg-sl::before{transform:translateX(17px)}
+
+/* ── Toast ── */
+.toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--ink);color:#fff;padding:10px 20px;border-radius:100px;font-size:12px;font-family:'DM Mono',monospace;opacity:0;transition:all .3s cubic-bezier(.34,1.2,.64,1);z-index:300;white-space:nowrap;pointer-events:none;max-width:90vw;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.success{background:var(--green)}.toast.error{background:var(--red)}
+
+/* ── Footer ── */
+footer{padding:20px 0;border-top:1px solid var(--border);font-size:10px;color:var(--ink-muted);font-family:'DM Mono',monospace;display:flex;justify-content:space-between}
+
+/* ── Spinner ── */
+@keyframes spin{to{transform:rotate(360deg)}}
+.sp{width:13px;height:13px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite;flex-shrink:0}
+.sp-dark{width:13px;height:13px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;flex-shrink:0}
+
+/* ── Loading overlay ── */
+.loading-overlay{position:fixed;inset:0;background:rgba(247,244,239,.7);backdrop-filter:blur(2px);z-index:200;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
+.loading-overlay.show{opacity:1;pointer-events:auto}
+.loading-box{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 32px;display:flex;align-items:center;gap:14px;font-size:13px;font-family:'DM Mono',monospace;color:var(--ink-muted)}
+
+@media(max-width:480px){
+  .shell{padding:0 14px}
+  header{flex-wrap:wrap;padding:20px 0 16px}
+  .tagline{display:none}
+  .pf{grid-template-columns:1fr}
+  .pf label{padding-top:0}
+  .cal-cell{min-height:44px}
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════
+     PAGE: HOME
+═══════════════════════════════════ -->
+<div class="page active" id="pgHome">
+<div class="shell">
+  <header>
+    <div class="logo">k<span>oe</span></div>
+    <div class="tagline">声で、予定を。</div>
+    <nav class="header-nav">
+      <a class="nav-btn active-page" onclick="nav('home')">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke="currentColor" stroke-width="2"/><polyline points="9 22 9 12 15 12 15 22" stroke="currentColor" stroke-width="2"/></svg>
+        ホーム
+      </a>
+      <a class="nav-btn" onclick="nav('cal')">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        予定一覧
+      </a>
+      <a class="nav-btn" onclick="nav('settings')">
+        <div class="sdot" id="navDot"></div>
+        設定
+      </a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- 直近の予定 -->
+    <div class="upcoming-section">
+      <div class="section-head">UPCOMING</div>
+      <div class="upcoming-list" id="upcomingList">
+        <div id="upcomingEmpty" style="font-size:12px;color:var(--ink-muted);font-family:'DM Mono',monospace;font-style:italic;text-align:center;padding:16px 0">
+          直近の予定はありません
+        </div>
+      </div>
+    </div>
+
+    <!-- Mode Selector -->
+    <div class="mode-selector">
+      <button class="mode-btn active-add" id="modeAdd" onclick="setMode('add')">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        新規登録
+      </button>
+      <button class="mode-btn" id="modeEdit" onclick="setMode('edit')">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        変更
+      </button>
+      <button class="mode-btn" id="modeDelete" onclick="setMode('delete')">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"><polyline points="3 6 5 6 21 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        削除
+      </button>
+    </div>
+    <div class="mode-hint" id="modeHint">話すか下に入力してください</div>
+
+    <!-- Voice input -->
+    <div class="voice-section">
+      <div class="mic-wrap">
+        <button class="mic-btn" id="micBtn" onclick="toggleRec()">
+          <div class="pulse-ring"></div><div class="pulse-ring"></div>
+          <svg id="micIcon" width="26" height="26" viewBox="0 0 24 24" fill="none">
+            <path d="M12 1a4 4 0 0 1 4 4v7a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4z" fill="#2A2620" opacity=".8"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" stroke="#2A2620" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="12" y1="19" x2="12" y2="23" stroke="#2A2620" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="9" y1="23" x2="15" y2="23" stroke="#2A2620" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+      <div class="mic-label" id="micLabel">タップして話す</div>
+    </div>
+
+    <div class="transcript-area" id="transcriptArea">
+      <div class="transcript-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></div>
+      <div class="transcript-text" id="transcriptText" contenteditable="true"
+           data-placeholder="話した内容がここに表示されます"></div>
+    </div>
+    <div class="transcript-hint">話し終わると自動でAI解析 · 手入力もOK</div>
+
+    <div class="center-btn-row">
+      <button class="btn btn-ai" id="parseBtn" onclick="runParse()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" fill="currentColor"/></svg>
+        AIで解析
+      </button>
+    </div>
+
+    <!-- Action Card (add / edit / delete) -->
+    <div class="parse-card" id="parseCard">
+      <div class="card-header add" id="cardHeader">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" fill="currentColor"/></svg>
+        <span id="cardHeaderText">AIが解析しました · 確認してください</span>
+      </div>
+
+      <!-- 元の予定情報（変更・削除時に表示） -->
+      <div id="originalEventInfo" style="display:none;padding:10px 18px 0;border-bottom:1px solid var(--border);margin-bottom:4px">
+        <div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--ink-muted);letter-spacing:.08em;margin-bottom:6px" id="originalEventLabel">変更前の予定</div>
+        <div style="font-size:13px;font-family:'DM Mono',monospace;color:var(--ink);background:var(--bg);border-radius:8px;padding:8px 12px;margin-bottom:10px;line-height:1.8" id="originalEventBody">—</div>
+      </div>
+
+      <!-- Add / Edit fields -->
+      <div id="cardFields">
+        <div class="parse-fields">
+          <div class="pf"><label>タイトル</label><input type="text" id="fTitle" placeholder="予定のタイトル"></div>
+          <div class="pf"><label>日時</label><div class="dt-row"><input type="date" id="fDate"><input type="time" id="fStart"><input type="time" id="fEnd"></div></div>
+          <div class="pf"><label>場所</label><input type="text" id="fLoc" placeholder="場所（任意）"></div>
+          <div class="pf"><label>メモ</label><textarea id="fNotes" placeholder="メモ（任意）"></textarea></div>
+        </div>
+      </div>
+
+      <!-- Delete confirmation area -->
+      <div id="cardDeleteArea" style="display:none;padding:16px 18px">
+        <p style="font-size:14px;line-height:1.7;margin-bottom:10px">以下の予定を削除します</p>
+        <div id="deleteTargetDesc" style="font-size:13px;font-family:'DM Mono',monospace;background:var(--bg);border-radius:8px;padding:10px 14px;line-height:1.9;color:var(--ink)">—</div>
+      </div>
+
+      <!-- Candidate list (when multiple matches) -->
+      <div id="candidateArea" style="display:none;padding:0 18px 4px">
+        <p style="font-size:12px;font-family:'DM Mono',monospace;color:var(--ink-muted);margin-bottom:10px">該当する予定が複数見つかりました。選んでください：</p>
+        <div id="candidateList" style="display:flex;flex-direction:column;gap:7px"></div>
+      </div>
+
+      <div class="card-actions" id="cardActions">
+        <button class="btn btn-secondary" onclick="clearCard()">クリア</button>
+        <button class="btn btn-ai" id="reparseBtn" onclick="runParse()">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M1 4v6h6M23 20v-6h-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          再解析
+        </button>
+        <button class="btn btn-primary" id="execBtn" onclick="execAction()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M8 14l3 3 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          カレンダーに追加
+        </button>
+      </div>
+    </div>
+
+    <!-- Recent history -->
+    <div>
+      <div class="section-head">RECENT</div>
+      <div class="history-list" id="historyList">
+        <div style="font-size:12px;color:var(--ink-muted);font-family:'DM Mono',monospace;font-style:italic;text-align:center;padding:16px 0">まだ操作履歴がありません</div>
+      </div>
+    </div>
+  </main>
+  <footer><span>koe v1.0</span><span>Gemini 2.5 Flash</span></footer>
+</div>
+</div>
+
+
+<!-- ═══════════════════════════════════
+     PAGE: CALENDAR
+═══════════════════════════════════ -->
+<div class="page" id="pgCal">
+<div class="shell">
+  <header>
+    <div class="logo">k<span>oe</span></div>
+    <nav class="header-nav">
+      <a class="nav-btn" onclick="nav('home')">ホーム</a>
+      <a class="nav-btn active-page" onclick="nav('cal')">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        予定一覧
+      </a>
+      <a class="nav-btn" onclick="nav('settings')">
+        <div class="sdot" id="calNavDot"></div>設定
+      </a>
+    </nav>
+  </header>
+  <main>
+    <div class="cal-controls">
+      <button class="cal-nav-btn" onclick="calPrev()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <div class="cal-month-label" id="calMonthLabel"></div>
+      <button class="cal-nav-btn" onclick="calNext()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M9 18l6-6-6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="cal-grid" id="calGrid"></div>
+
+    <div class="day-events-section">
+      <div class="day-events-title" id="dayEventsTitle">日付を選択してください</div>
+      <div class="event-list" id="eventList">
+        <div style="font-size:12px;color:var(--ink-muted);font-family:'DM Mono',monospace;font-style:italic;padding:12px 0">予定はありません</div>
+      </div>
+    </div>
+  </main>
+  <footer><span>koe v1.0</span></footer>
+</div>
+</div>
+
+
+<!-- ═══════════════════════════════════
+     PAGE: SETTINGS
+═══════════════════════════════════ -->
+<div class="page" id="pgSettings">
+<div class="shell">
+  <header>
+    <div class="logo">k<span>oe</span></div>
+    <nav class="header-nav">
+      <a class="nav-btn" onclick="nav('home')">ホーム</a>
+      <a class="nav-btn" onclick="nav('cal')">予定一覧</a>
+      <a class="nav-btn active-page" onclick="nav('settings')">
+        <div class="sdot" id="settingsDot"></div>設定
+      </a>
+    </nav>
+  </header>
+  <main style="padding:28px 0 24px">
+
+    <div class="s-section">
+      <div class="section-head">AI</div>
+      <div class="s-card">
+        <div class="s-row">
+          <div class="s-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+          <div class="s-body">
+            <div class="s-label">Gemini API キー</div>
+            <div class="s-desc"><a href="https://aistudio.google.com/apikey" target="_blank">Google AI Studio</a> で無料取得（1日1,500回まで無料）</div>
+            <div class="ki-wrap">
+              <input class="ki" type="password" id="geminiInput" placeholder="AIzaSy..." onkeydown="if(event.key==='Enter')saveGeminiKey()">
+              <button class="btn-ks" onclick="saveGeminiKey()">保存</button>
+              <button class="btn-kc" onclick="clearGeminiKey()">削除</button>
+            </div>
+            <div class="f-status"><div class="sdot" id="geminiDot"></div><span id="geminiSt">未設定</span></div>
+            <div class="info-box"><strong>保存先：</strong> localStorage（端末内のみ）<br><strong>モデル：</strong> gemini-2.5-flash（無料枠）<br><strong>上限：</strong> 1,500回/日・15回/分</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="s-section">
+      <div class="section-head">GOOGLE カレンダー</div>
+      <div class="s-card">
+        <div class="s-row">
+          <div class="s-icon" style="background:var(--green-light);color:var(--green)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></div>
+          <div class="s-body">
+            <div class="s-label">Googleアカウント連携</div>
+            <div class="s-desc">サインインするとカレンダーに直接読み書きできます</div>
+            <button class="btn-gcal" id="gcalBtn" onclick="handleGcalConnect()">
+              <svg width="16" height="16" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+              <span id="gcalBtnLabel">Googleアカウントでサインイン</span>
+            </button>
+            <div id="tokenBar" style="display:none">
+              <div class="token-bar">
+                <div class="token-timer"><div class="sdot ok" id="tokenDot"></div><span id="tokenTimerTxt">トークン有効</span><button class="btn-gdis" onclick="disconnectGcal()">切断</button></div>
+                <div class="token-prog-wrap"><div class="token-prog" id="tokenProg" style="width:100%"></div></div>
+              </div>
+            </div>
+            <div class="info-box" id="clientIdBox">
+              <strong>Client ID 設定手順：</strong><br>
+              1. <a href="https://console.cloud.google.com" target="_blank" style="color:var(--accent)">Google Cloud Console</a> でプロジェクト作成<br>
+              2. Google Calendar API を有効化<br>
+              3. OAuth同意画面 → テストユーザーに使う人のGmailを追加（審査不要・最大100人）<br>
+              4. 認証情報 → OAuthクライアントID（ウェブアプリ）→ 承認済みオリジンにデプロイ先URLを追加<br>
+              5. 発行されたClient IDを下に入力して保存
+            </div>
+            <div style="margin-top:12px">
+              <div class="ki-wrap">
+                <input class="ki" type="text" id="clientIdInput" placeholder="xxxx.apps.googleusercontent.com" onkeydown="if(event.key==='Enter')saveClientId()">
+                <button class="btn-ks" onclick="saveClientId()">保存</button>
+                <button class="btn-kc" onclick="clearClientId()">削除</button>
+              </div>
+              <div class="f-status"><div class="sdot" id="cidDot"></div><span id="cidSt">未設定（デモモード）</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="s-section">
+      <div class="section-head">音声</div>
+      <div class="s-card">
+        <div class="toggle-row"><div><div class="tg-label">話し終わったら自動解析</div><div class="tg-desc">録音停止後にAI解析を自動開始</div></div><label class="toggle"><input type="checkbox" id="autoParseToggle" onchange="savePref('autoParse',this.checked)"><span class="tg-sl"></span></label></div>
+      </div>
+    </div>
+
+    <div class="s-section">
+      <div class="section-head">アプリ情報</div>
+      <div class="s-card">
+        <div class="toggle-row"><div><div class="tg-label">バージョン</div><div class="tg-desc">koe v1.0</div></div></div>
+        <div class="toggle-row"><div><div class="tg-label">AIエンジン</div><div class="tg-desc">Google Gemini 2.5 Flash</div></div></div>
+        <div class="toggle-row"><div><div class="tg-label">音声認識</div><div class="tg-desc">Web Speech API（無料）</div></div></div>
+      </div>
+    </div>
+  </main>
+  <footer><span>koe v1.0</span></footer>
+</div>
+</div>
+
+<!-- ── Detail Sheet ── -->
+<div class="detail-sheet" id="detailSheet">
+  <div class="detail-backdrop" onclick="closeDetail()"></div>
+  <div class="detail-panel" id="detailPanel">
+    <div class="detail-handle"></div>
+    <div class="detail-title" id="detailTitle">—</div>
+    <div class="detail-row"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span id="detailDate">—</span></div>
+    <div class="detail-row"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/><path d="M12 6v6l4 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span id="detailTime">—</span></div>
+    <div class="detail-row" id="detailLocRow"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="10" r="3" stroke="currentColor" stroke-width="1.5"/></svg><span id="detailLoc">—</span></div>
+    <div class="detail-row" id="detailNotesRow"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="1.5"/><polyline points="14 2 14 8 20 8" stroke="currentColor" stroke-width="1.5"/></svg><span id="detailNotes">—</span></div>
+    <div class="detail-divider"></div>
+    <div class="detail-btn-row">
+      <button class="btn btn-secondary" onclick="closeDetail()">閉じる</button>
+      <button class="btn btn-ai" onclick="editFromDetail()">✎ 変更</button>
+      <button class="btn btn-danger" onclick="deleteFromDetail()">✕ 削除</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Confirm Dialog ── -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-box">
+    <h3 id="confirmTitle">確認</h3>
+    <p id="confirmMsg">本当に実行しますか？</p>
+    <div class="confirm-btns">
+      <button class="btn btn-secondary" onclick="confirmResolve(false)">キャンセル</button>
+      <button class="btn btn-danger" id="confirmOkBtn" onclick="confirmResolve(true)">実行</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Loading ── -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-box"><div class="sp-dark"></div><span id="loadingMsg">処理中…</span></div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+// ══════════════════════════════════════════════════════
+// CONSTANTS & STORAGE
+// ══════════════════════════════════════════════════════
+const TOKEN_LIFE = 55*60*1000;
+const CAL_API    = 'https://www.googleapis.com/calendar/v3';
+
+const LS = {
+  get:(k)=>localStorage.getItem('koe_'+k)||'',
+  set:(k,v)=>localStorage.setItem('koe_'+k,v),
+  del:(k)=>localStorage.removeItem('koe_'+k),
+  getJ:(k,d)=>{const v=localStorage.getItem('koe_'+k);return v===null?d:JSON.parse(v)},
+  setJ:(k,v)=>localStorage.setItem('koe_'+k,JSON.stringify(v)),
+};
+const getPref=(k,d)=>LS.getJ(k,d);
+const savePref=(k,v)=>LS.setJ(k,v);
+
+// ══════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════
+const S = {
+  mode: 'add',           // 'add' | 'edit' | 'delete'
+  history: [],
+  gcal: { token:null, expiresAt:null, timerInterval:null },
+  events: [],            // cached calendar events
+  calYear: new Date().getFullYear(),
+  calMonth: new Date().getMonth(),
+  calSelected: null,     // Date string YYYY-MM-DD
+  detailEvent: null,     // event being shown in detail sheet
+  pendingConfirm: null,  // resolve function for confirm dialog
+  editTargetId: null,    // google event id for edit
+};
+
+// ══════════════════════════════════════════════════════
+// NAVIGATION
+// ══════════════════════════════════════════════════════
+function nav(page) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  const map={home:'pgHome',cal:'pgCal',settings:'pgSettings'};
+  document.getElementById(map[page]).classList.add('active');
+  window.scrollTo(0,0);
+  refreshDots();
+  if(page==='cal') renderCalendar();
+  if(page==='home') refreshUpcoming();
+}
+
+// ══════════════════════════════════════════════════════
+// KEYS & AUTH
+// ══════════════════════════════════════════════════════
+function saveGeminiKey(){
+  const v=document.getElementById('geminiInput').value.trim();
+  if(!v){showToast('APIキーを入力してください','error');return;}
+  LS.set('gemini_key',v);
+  document.getElementById('geminiInput').value='';
+  refreshDots(); showToast('Gemini APIキーを保存しました ✓','success');
+}
+function clearGeminiKey(){LS.del('gemini_key');refreshDots();showToast('Gemini APIキーを削除しました');}
+function getGeminiKey(){return LS.get('gemini_key');}
+
+function saveClientId(){
+  const v=document.getElementById('clientIdInput').value.trim();
+  if(!v){showToast('Client IDを入力してください','error');return;}
+  LS.set('client_id',v);
+  document.getElementById('clientIdInput').value='';
+  initGIS(); refreshDots(); showToast('Client IDを保存しました ✓','success');
+}
+function clearClientId(){LS.del('client_id');disconnectGcal();refreshDots();showToast('Client IDを削除しました');}
+function getClientId(){return LS.get('client_id');}
+
+// ── GIS ──
+let _tc=null, _pendingResolve=null;
+
+function saveToken(token, expiresAt){
+  S.gcal.token=token;
+  S.gcal.expiresAt=expiresAt;
+  LS.set('gcal_token', token);
+  LS.set('gcal_expires', String(expiresAt));
+}
+function clearToken(){
+  S.gcal.token=null; S.gcal.expiresAt=null;
+  LS.del('gcal_token'); LS.del('gcal_expires');
+}
+function restoreToken(){
+  const token=LS.get('gcal_token');
+  const exp=Number(LS.get('gcal_expires')||0);
+  if(token && exp > Date.now()+60000){ // 残り1分以上あれば復元
+    S.gcal.token=token;
+    S.gcal.expiresAt=exp;
+    return true;
+  }
+  return false;
+}
+
+function initGIS(){
+  const cid=getClientId();
+  if(!cid||!window.google?.accounts?.oauth2) return;
+  _tc=google.accounts.oauth2.initTokenClient({
+    client_id:cid,
+    scope:'https://www.googleapis.com/auth/calendar.events',
+    callback:(resp)=>{
+      if(resp.error){
+        showToast('Google認証エラー: '+resp.error,'error');
+        _pendingResolve&&(_pendingResolve(false),_pendingResolve=null); return;
+      }
+      const expiresAt=Date.now()+TOKEN_LIFE;
+      saveToken(resp.access_token, expiresAt);
+      startTokenTimer(); updateGcalUI(true);
+      if(_pendingResolve){_pendingResolve(true);_pendingResolve=null;}
+      else showToast('Googleカレンダーを接続しました ✓','success');
+      fetchEvents();
+    }
+  });
+  // リロード時: localStorageに有効なトークンがあればポップアップなしで復元
+  if(restoreToken()){
+    startTokenTimer(); updateGcalUI(true);
+    fetchEvents();
+  }
+}
+
+function ensureToken(force=false){
+  return new Promise(resolve=>{
+    if(!force && S.gcal.token && Date.now()<S.gcal.expiresAt) return resolve(true);
+    if(!_tc){showToast('設定画面でClient IDを設定してください','error');setTimeout(()=>nav('settings'),900);return resolve(false);}
+    _pendingResolve=resolve;
+    _tc.requestAccessToken({prompt:''});
+  });
+}
+function handleGcalConnect(){
+  if(S.gcal.token){disconnectGcal();}
+  else{
+    if(!getClientId()){showToast('先にClient IDを設定してください','error');document.getElementById('clientIdInput').focus();return;}
+    ensureToken();
+  }
+}
+function disconnectGcal(){
+  window.google?.accounts?.oauth2?.revoke?.(S.gcal.token,()=>{});
+  clearToken();
+  clearInterval(S.gcal.timerInterval);
+  updateGcalUI(false); showToast('Googleカレンダーを切断しました');
+}
+
+let _autoRefreshing=false;
+function startTokenTimer(){
+  clearInterval(S.gcal.timerInterval);
+  document.getElementById('tokenBar').style.display='block';
+  _autoRefreshing=false;
+  S.gcal.timerInterval=setInterval(()=>{
+    const rem=S.gcal.expiresAt-Date.now();
+    // 残り5分になったらポップアップなしでバックグラウンド自動更新
+    if(rem<=5*60*1000 && !_autoRefreshing){
+      _autoRefreshing=true;
+      silentRefresh();
+    }
+    if(rem<=0) return;
+    const pct=Math.max(0,(rem/TOKEN_LIFE)*100);
+    const m=Math.floor(rem/60000), s=Math.floor((rem%60000)/1000);
+    const prog=document.getElementById('tokenProg');
+    const dot=document.getElementById('tokenDot');
+    const lbl=document.getElementById('tokenTimerTxt');
+    prog.style.width=pct+'%';
+    if(pct>30){prog.className='token-prog';dot.className='sdot ok';lbl.textContent=`有効 — あと${m}分${s}秒`;}
+    else if(pct>10){prog.className='token-prog warn';dot.className='sdot warn';lbl.textContent=`まもなく更新中…`;}
+    else{prog.className='token-prog exp';dot.className='sdot warn';lbl.textContent=`自動更新中…`;}
+  },1000);
+}
+
+function silentRefresh(){
+  if(!_tc) return;
+  // prompt:'' = Googleのセッションが生きていればポップアップなしで更新される
+  _tc.requestAccessToken({prompt:''});
+  // callbackで新しいトークンが来ればsaveToken()→startTokenTimer()が走り、_autoRefreshingがリセットされる
+  // 失敗（セッション切れ等）の場合のみ5分後に再試行ではなくトースト通知
+  setTimeout(()=>{
+    if(_autoRefreshing && (!S.gcal.token || Date.now()>=S.gcal.expiresAt)){
+      _autoRefreshing=false;
+      showToast('セッションが切れました。再サインインしてください','error');
+      updateGcalUI(false);
+    }
+  }, 15000); // 15秒待って更新されていなければ失敗とみなす
+}
+
+function updateGcalUI(connected){
+  const btn=document.getElementById('gcalBtn');
+  const lbl=document.getElementById('gcalBtnLabel');
+  const bar=document.getElementById('tokenBar');
+  if(connected){btn.classList.add('connected');lbl.textContent='接続済み（クリックで切断）';bar.style.display='block';}
+  else{btn.classList.remove('connected');lbl.textContent='Googleアカウントでサインイン';bar.style.display='none';}
+  refreshDots();
+}
+
+function refreshDots(){
+  const gOk=!!getGeminiKey(), cOk=!!S.gcal.token;
+  const cls=gOk&&cOk?'sdot ok':!gOk?'sdot err':'sdot warn';
+  ['navDot','calNavDot','settingsDot'].forEach(id=>{const el=document.getElementById(id);if(el)el.className=cls;});
+  const gd=document.getElementById('geminiDot');
+  const cd=document.getElementById('cidDot');
+  if(gd){gd.className=gOk?'sdot ok':'sdot err';document.getElementById('geminiSt').textContent=gOk?'設定済み':'未設定';}
+  if(cd){cd.className=getClientId()?'sdot ok':'sdot warn';document.getElementById('cidSt').textContent=getClientId()?'設定済み':'未設定（デモモード）';}
+}
+
+// ══════════════════════════════════════════════════════
+// SPEECH
+// ══════════════════════════════════════════════════════
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+function initSpeech(){
+  if(!SR){document.getElementById('micBtn').disabled=true;document.getElementById('micLabel').textContent='非対応ブラウザ';return;}
+  const r=new SR();
+  r.lang='ja-JP'; r.continuous=true; r.interimResults=true;
+  let fin='';
+  r.onstart=()=>{fin='';setRecUI(true);};
+  r.onresult=e=>{
+    let interim='';
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const t=e.results[i][0].transcript;
+      e.results[i].isFinal?(fin+=t):(interim=t);
+    }
+    const el=document.getElementById('transcriptText');
+    el.textContent=fin+interim;
+    document.getElementById('transcriptArea').classList.toggle('active',!!(fin+interim));
+  };
+  r.onend=()=>{
+    setRecUI(false);
+    const txt=document.getElementById('transcriptText').textContent.trim();
+    if(txt.length>3&&getPref('autoParse',false)) setTimeout(runParse,600);
+  };
+  r.onerror=e=>{setRecUI(false);if(e.error!=='no-speech')showToast('音声エラー: '+e.error,'error');};
+  S.recognition=r;
+}
+function toggleRec(){
+  if(!S.recognition){showToast('このブラウザは音声入力非対応','error');return;}
+  if(S.isRecording) S.recognition.stop();
+  else{document.getElementById('transcriptText').textContent='';S.recognition.start();}
+}
+function setRecUI(on){
+  S.isRecording=on;
+  document.getElementById('micBtn').classList.toggle('recording',on);
+  const lbl=document.getElementById('micLabel');
+  lbl.classList.toggle('active',on);
+  lbl.textContent=on?'聞いています…':'タップして話す';
+  document.getElementById('micIcon').innerHTML=on
+    ?`<rect x="9" y="9" width="6" height="6" rx="1" fill="#fff"/>
+      <path d="M12 1a4 4 0 0 1 4 4v7a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4z" fill="rgba(255,255,255,.3)"/>
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="12" y1="19" x2="12" y2="23" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="9" y1="23" x2="15" y2="23" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>`
+    :`<path d="M12 1a4 4 0 0 1 4 4v7a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4z" fill="#2A2620" opacity=".8"/>
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" stroke="#2A2620" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="12" y1="19" x2="12" y2="23" stroke="#2A2620" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="9" y1="23" x2="15" y2="23" stroke="#2A2620" stroke-width="1.5" stroke-linecap="round"/>`;
+}
+
+// ══════════════════════════════════════════════════════
+// MODE (add / edit / delete)
+// ══════════════════════════════════════════════════════
+function setMode(m){
+  S.mode=m;
+  // ボタンのactive状態を更新
+  document.getElementById('modeAdd').className    = 'mode-btn' + (m==='add'    ? ' active-add'    : '');
+  document.getElementById('modeEdit').className   = 'mode-btn' + (m==='edit'   ? ' active-edit'   : '');
+  document.getElementById('modeDelete').className = 'mode-btn' + (m==='delete' ? ' active-delete' : '');
+  // マイクボタンの枠色も変える
+  const mic = document.getElementById('micBtn');
+  mic.style.boxShadow = m==='delete'
+    ? '0 2px 12px rgba(192,57,43,.2), 0 0 0 2px rgba(192,57,43,.3)'
+    : m==='edit'
+    ? '0 2px 12px rgba(42,100,150,.15), 0 0 0 2px rgba(42,100,150,.25)'
+    : '0 2px 12px var(--shadow), 0 0 0 1px var(--border)';
+  // ヒントテキスト
+  const hints = {
+    add:    '話すか入力 → AIが日時・場所を自動で抽出します',
+    edit:   '「〇〇を△日に変更して」のように話してください',
+    delete: '「〇〇を削除して」のように話してください',
+  };
+  document.getElementById('modeHint').textContent = hints[m];
+  // transcriptをクリア（モード切替時）
+  if(!S.isRecording){
+    document.getElementById('transcriptText').textContent='';
+    document.getElementById('transcriptArea').classList.remove('active');
+    document.getElementById('parseCard').classList.remove('visible');
+    S.pendingAction=null;
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// AI PARSE
+// ══════════════════════════════════════════════════════
+async function runParse(){
+  const text=document.getElementById('transcriptText').textContent.trim();
+  if(!text){showToast('テキストを入力してください');return;}
+
+  const key=getGeminiKey();
+  if(!key){showToast('設定画面でGemini APIキーを設定してください','error');setTimeout(()=>nav('settings'),900);return;}
+
+  const btn=document.getElementById('parseBtn');
+  btn.innerHTML='<div class="sp-dark"></div> 解析中…'; btn.disabled=true;
+
+  try{
+    const today=new Date().toISOString().split('T')[0];
+    const dow=['日','月','火','水','木','金','土'][new Date().getDay()];
+    const tomorrow=new Date(Date.now()+86400000).toISOString().split('T')[0];
+
+    // モードに合わせてプロンプトを変える
+    let prompt='';
+    if(S.mode==='add'){
+      prompt=`今日は${today}(${dow}曜)、明日は${tomorrow}。
+以下の日本語テキストからカレンダー予定情報を抽出しJSONのみ返してください。
+テキスト:"${text}"
+{"intent":"add","title":"タイトル","date":"YYYY-MM-DD","startTime":"HH:MM","endTime":"HH:MM","location":"場所(不明なら空)","notes":"メモ(不明なら空)"}
+注意:時間不明はstart=09:00,end=1時間後。相対表現を正確に解釈。`;
+    } else {
+      // edit or delete: タイトルキーワードと日時変更を抽出
+      prompt=`今日は${today}(${dow}曜)、明日は${tomorrow}。
+以下のテキストはカレンダー予定の「${S.mode==='edit'?'変更':'削除'}」指示です。JSONのみ返してください。
+テキスト:"${text}"
+{"intent":"${S.mode}","searchKeyword":"検索キーワード(人名や件名など)","date":"変更後日付YYYY-MM-DDまたは空","startTime":"変更後開始時間HH:MMまたは空","endTime":"変更後終了時間HH:MMまたは空","location":"変更後場所または空","notes":"変更後メモまたは空","title":"変更後タイトルまたは空"}
+注意:変更しない項目は空文字。searchKeywordは元の予定を特定するための名前や件名。`;
+    }
+
+    const res=await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+      {method:'POST',headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json'}})}
+    );
+    const data=await res.json();
+    if(data.error) throw new Error(data.error.message);
+    const raw=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
+    const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim());
+    applyParsed(parsed);
+  }catch(e){
+    console.error(e);
+    // fallback
+    applyParsed(demoFallback(text));
+    showToast('デモ解析（API失敗）');
+  }finally{
+    btn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" fill="currentColor"/></svg> AIで解析';
+    btn.disabled=false;
+  }
+}
+
+function demoFallback(text){
+  const tomorrow=new Date(Date.now()+86400000).toISOString().split('T')[0];
+  const today=new Date().toISOString().split('T')[0];
+  const date=text.includes('明日')?tomorrow:today;
+  let s='10:00',e='11:00';
+  const m=text.match(/(\d{1,2})時/);
+  if(m){const h=m[1].padStart(2,'0');s=`${h}:00`;e=`${String(+m[1]+1).padStart(2,'0')}:00`;}
+  return{intent:S.mode,title:text.slice(0,20),date,startTime:s,endTime:e,location:'',notes:'',searchKeyword:text.slice(0,10)};
+}
+
+function applyParsed(d){
+  const card=document.getElementById('parseCard');
+  const header=document.getElementById('cardHeader');
+  const headerText=document.getElementById('cardHeaderText');
+  const fields=document.getElementById('cardFields');
+  const delArea=document.getElementById('cardDeleteArea');
+  const candArea=document.getElementById('candidateArea');
+  const execBtn=document.getElementById('execBtn');
+  const actions=document.getElementById('cardActions');
+  const reparseBtn=document.getElementById('reparseBtn');
+
+  candArea.style.display='none';
+  hideOriginalEventInfo();
+
+  if(d.intent==='add'||S.mode==='add'){
+    header.className='card-header add';
+    headerText.textContent='AIが解析しました · 確認してください';
+    fields.style.display='block'; delArea.style.display='none';
+    document.getElementById('fTitle').value=d.title||'';
+    document.getElementById('fDate').value=d.date||'';
+    document.getElementById('fStart').value=d.startTime||'09:00';
+    document.getElementById('fEnd').value=d.endTime||'10:00';
+    document.getElementById('fLoc').value=d.location||'';
+    document.getElementById('fNotes').value=d.notes||'';
+    execBtn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M8 14l3 3 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> カレンダーに追加';
+    execBtn.className='btn btn-primary';
+    reparseBtn.style.display='';
+    S.pendingAction={type:'add',data:d};
+  } else {
+    // edit or delete: find matching events
+    const kw=(d.searchKeyword||d.title||'').toLowerCase();
+    const matches=S.events.filter(ev=>{
+      const title=(ev.summary||'').toLowerCase();
+      return title.includes(kw)||kw.includes(title.split(' ')[0]);
+    });
+
+    if(d.intent==='edit'||S.mode==='edit'){
+      header.className='card-header edit';
+      headerText.textContent='変更する予定を確認してください';
+      execBtn.innerHTML='✎ 変更を保存';
+      execBtn.className='btn btn-primary';
+    } else {
+      header.className='card-header delete';
+      headerText.textContent='削除する予定を確認してください';
+      execBtn.innerHTML='✕ 削除する';
+      execBtn.className='btn btn-danger';
+    }
+    reparseBtn.style.display='';
+
+    if(matches.length===0){
+      // 候補なし → フォールバックで手動入力
+      fields.style.display='block'; delArea.style.display='none';
+      document.getElementById('fTitle').value=d.searchKeyword||'';
+      document.getElementById('fDate').value=d.date||'';
+      document.getElementById('fStart').value=d.startTime||'';
+      document.getElementById('fEnd').value=d.endTime||'';
+      document.getElementById('fLoc').value=d.location||'';
+      document.getElementById('fNotes').value=d.notes||'';
+      showToast('該当する予定が見つかりません。手動で選択してください');
+      S.pendingAction={type:d.intent||S.mode,data:d,targetId:null};
+    } else if(matches.length===1){
+      showSingleMatch(matches[0], d);
+    } else {
+      // 複数候補を表示
+      fields.style.display='none'; delArea.style.display='none';
+      candArea.style.display='block';
+      const list=document.getElementById('candidateList');
+      list.innerHTML=matches.map((ev,i)=>{
+        const dt=formatEventDate(ev);
+        return `<div class="upcoming-item" onclick="selectCandidate(${i})" style="cursor:pointer">
+          <div class="upcoming-info"><div class="upcoming-title">${ev.summary||'無題'}</div><div class="upcoming-time">${dt}</div></div>
+          <div class="upcoming-arrow"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M9 18l6-6-6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+        </div>`;
+      }).join('');
+      S._candidateMatches=matches;
+      S._candidateParsed=d;
+    }
+  }
+
+  card.classList.add('visible');
+  card.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+function selectCandidate(i){
+  const ev=S._candidateMatches[i];
+  const d=S._candidateParsed;
+  document.getElementById('candidateArea').style.display='none';
+  showSingleMatch(ev, d);
+}
+
+function formatEventFull(ev){
+  const dateStr=(ev.start?.dateTime||ev.start?.date||'').slice(0,10);
+  const dt=new Date(dateStr+'T00:00');
+  const dow=['日','月','火','水','木','金','土'][dt.getDay()];
+  const dateLabel=`${dt.getMonth()+1}月${dt.getDate()}日（${dow}）`;
+  const time=ev.start?.dateTime
+    ? `${ev.start.dateTime.slice(11,16)} 〜 ${ev.end.dateTime.slice(11,16)}`
+    : '終日';
+  const title=ev.summary||'無題';
+  const loc=ev.location?`\n📍 ${ev.location}`:'';
+  return {title, dateLabel, time, loc};
+}
+
+function showOriginalEventInfo(ev, labelText){
+  const info=document.getElementById('originalEventInfo');
+  const label=document.getElementById('originalEventLabel');
+  const body=document.getElementById('originalEventBody');
+  const f=formatEventFull(ev);
+  label.textContent=labelText;
+  body.innerHTML=`<strong>${f.title}</strong><br>${f.dateLabel} ${f.time}${f.loc.replace('\n','<br>')}`;
+  info.style.display='block';
+}
+
+function hideOriginalEventInfo(){
+  document.getElementById('originalEventInfo').style.display='none';
+}
+
+function showSingleMatch(ev, d){
+  const fields=document.getElementById('cardFields');
+  const delArea=document.getElementById('cardDeleteArea');
+
+  if(S.mode==='delete'){
+    fields.style.display='none'; delArea.style.display='none';
+    hideOriginalEventInfo();
+    // 削除確認エリアに詳細表示
+    const f=formatEventFull(ev);
+    document.getElementById('deleteTargetDesc').innerHTML=
+      `<strong>${f.title}</strong><br>${f.dateLabel} ${f.time}${f.loc.replace('\n','<br>')}`;
+    delArea.style.display='block';
+    S.pendingAction={type:'delete',targetId:ev.id,eventObj:ev};
+  } else {
+    // edit: 元の予定を上部に表示してフォームに反映
+    fields.style.display='block'; delArea.style.display='none';
+    showOriginalEventInfo(ev, '変更前の予定');
+    const exStart=ev.start?.dateTime?ev.start.dateTime.slice(11,16):'09:00';
+    const exEnd  =ev.end?.dateTime?ev.end.dateTime.slice(11,16):'10:00';
+    const exDate =(ev.start?.dateTime||ev.start?.date||'').slice(0,10);
+    document.getElementById('fTitle').value=d.title||ev.summary||'';
+    document.getElementById('fDate').value=d.date||exDate;
+    document.getElementById('fStart').value=d.startTime||exStart;
+    document.getElementById('fEnd').value=d.endTime||exEnd;
+    document.getElementById('fLoc').value=d.location||ev.location||'';
+    document.getElementById('fNotes').value=d.notes||ev.description||'';
+    S.pendingAction={type:'edit',targetId:ev.id,data:d};
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// EXEC ACTION (add / edit / delete)
+// ══════════════════════════════════════════════════════
+const SAVE_ICON='<svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M8 14l3 3 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> カレンダーに追加';
+
+async function execAction(){
+  const action=S.pendingAction;
+  if(!action){showToast('まずAI解析してください');return;}
+
+  const btn=document.getElementById('execBtn');
+  btn.disabled=true;
+
+  // ── ADD ──
+  if(action.type==='add'){
+    const title=document.getElementById('fTitle').value.trim();
+    const date=document.getElementById('fDate').value;
+    const start=document.getElementById('fStart').value;
+    const end=document.getElementById('fEnd').value;
+    const loc=document.getElementById('fLoc').value.trim();
+    const notes=document.getElementById('fNotes').value.trim();
+    if(!title||!date||!start){showToast('タイトルと日時は必須です','error');btn.disabled=false;return;}
+
+    btn.innerHTML='<div class="sp"></div> 追加中…';
+    if(!getClientId()){
+      // demo
+      await delay(700);
+      S.events.push({id:'local_'+Date.now(),summary:title,start:{dateTime:`${date}T${start}:00`},end:{dateTime:`${date}T${end}:00`},location:loc,description:notes,_local:true});
+      addHistory({label:'追加',title,date,start,end,status:'success'});
+      showToast('追加しました ✓（デモ）','success');
+      clearCard(); refreshUpcoming(); btn.innerHTML=SAVE_ICON; btn.disabled=false; return;
+    }
+    const ok=await ensureToken();
+    if(!ok){btn.innerHTML=SAVE_ICON;btn.disabled=false;return;}
+    try{
+      const r=await gcalPost('/calendars/primary/events',{summary:title,location:loc,description:notes,start:{dateTime:`${date}T${start}:00`,timeZone:'Asia/Tokyo'},end:{dateTime:`${date}T${end}:00`,timeZone:'Asia/Tokyo'}});
+      if(r.status===401){const ref=await ensureToken(true);if(!ref){btn.disabled=false;return;}await gcalPost('/calendars/primary/events',{summary:title,location:loc,description:notes,start:{dateTime:`${date}T${start}:00`,timeZone:'Asia/Tokyo'},end:{dateTime:`${date}T${end}:00`,timeZone:'Asia/Tokyo'}});}
+      addHistory({label:'追加',title,date,start,end,status:'success'});
+      showToast('カレンダーに追加しました ✓','success');
+      clearCard(); await fetchEvents();
+    }catch(e){addHistory({label:'追加',title,date,start,end,status:'error'});showToast('追加に失敗: '+e.message,'error');}
+    btn.innerHTML=SAVE_ICON; btn.disabled=false;
+
+  // ── EDIT ──
+  } else if(action.type==='edit'){
+    const title=document.getElementById('fTitle').value.trim();
+    const date=document.getElementById('fDate').value;
+    const start=document.getElementById('fStart').value;
+    const end=document.getElementById('fEnd').value;
+    const loc=document.getElementById('fLoc').value.trim();
+    const notes=document.getElementById('fNotes').value.trim();
+    if(!title||!date||!start){showToast('タイトルと日時は必須です','error');btn.disabled=false;return;}
+
+    // confirm
+    const yes=await showConfirm('予定を変更しますか？',`「${title}」を${date} ${start}〜${end} に変更します`,'変更する');
+    if(!yes){btn.innerHTML='✎ 変更を保存';btn.disabled=false;return;}
+
+    btn.innerHTML='<div class="sp"></div> 変更中…';
+    if(!getClientId()||!action.targetId){
+      await delay(700);
+      const idx=S.events.findIndex(e=>e.id===action.targetId);
+      if(idx>=0){S.events[idx]={...S.events[idx],summary:title,start:{dateTime:`${date}T${start}:00`},end:{dateTime:`${date}T${end}:00`},location:loc,description:notes};}
+      addHistory({label:'変更',title,date,start,end,status:'success'});
+      showToast('変更しました ✓（デモ）','success');
+      clearCard(); refreshUpcoming(); btn.innerHTML='✎ 変更を保存'; btn.disabled=false; return;
+    }
+    const ok=await ensureToken();
+    if(!ok){btn.disabled=false;return;}
+    try{
+      const body={summary:title,location:loc,description:notes,start:{dateTime:`${date}T${start}:00`,timeZone:'Asia/Tokyo'},end:{dateTime:`${date}T${end}:00`,timeZone:'Asia/Tokyo'}};
+      let r=await gcalPatch('/calendars/primary/events/'+action.targetId,body);
+      if(r.status===401){await ensureToken(true);r=await gcalPatch('/calendars/primary/events/'+action.targetId,body);}
+      if(!r.ok) throw new Error((await r.json()).error?.message||'APIエラー');
+      addHistory({label:'変更',title,date,start,end,status:'success'});
+      showToast('予定を変更しました ✓','success');
+      clearCard(); await fetchEvents();
+    }catch(e){showToast('変更に失敗: '+e.message,'error');}
+    btn.innerHTML='✎ 変更を保存'; btn.disabled=false;
+
+  // ── DELETE ──
+  } else if(action.type==='delete'){
+    const evObj=action.eventObj||S.events.find(e=>e.id===action.targetId);
+    const title=evObj?.summary||'この予定';
+    const yes=await showConfirm('予定を削除しますか？',`「${title}」を削除します。この操作は取り消せません。`,'削除する');
+    if(!yes){btn.innerHTML='✕ 削除する';btn.disabled=false;return;}
+
+    btn.innerHTML='<div class="sp"></div> 削除中…';
+    if(!getClientId()||!action.targetId){
+      await delay(700);
+      S.events=S.events.filter(e=>e.id!==action.targetId);
+      addHistory({label:'削除',title,date:'',start:'',end:'',status:'success'});
+      showToast('削除しました ✓（デモ）','success');
+      clearCard(); refreshUpcoming(); btn.innerHTML='✕ 削除する'; btn.disabled=false; return;
+    }
+    const ok=await ensureToken();
+    if(!ok){btn.disabled=false;return;}
+    try{
+      let r=await gcalDelete('/calendars/primary/events/'+action.targetId);
+      if(r.status===401){await ensureToken(true);r=await gcalDelete('/calendars/primary/events/'+action.targetId);}
+      if(r.status!==204&&!r.ok) throw new Error('削除APIエラー');
+      addHistory({label:'削除',title,date:'',start:'',end:'',status:'success'});
+      showToast('予定を削除しました ✓','success');
+      clearCard(); await fetchEvents();
+    }catch(e){showToast('削除に失敗: '+e.message,'error');}
+    btn.innerHTML='✕ 削除する'; btn.disabled=false;
+  }
+}
+
+function clearCard(){
+  document.getElementById('parseCard').classList.remove('visible');
+  document.getElementById('transcriptText').textContent='';
+  document.getElementById('transcriptArea').classList.remove('active');
+  S.pendingAction=null;
+  setMode('add');
+}
+
+// ══════════════════════════════════════════════════════
+// GOOGLE CALENDAR API
+// ══════════════════════════════════════════════════════
+function gcalFetch(path, opts={}){
+  return fetch(CAL_API+path, {headers:{'Authorization':'Bearer '+S.gcal.token,'Content-Type':'application/json'},...opts});
+}
+function gcalPost(path, body){ return gcalFetch(path,{method:'POST',body:JSON.stringify(body)}); }
+function gcalPatch(path, body){ return gcalFetch(path,{method:'PATCH',body:JSON.stringify(body)}); }
+function gcalDelete(path){ return gcalFetch(path,{method:'DELETE'}); }
+
+async function fetchEvents(){
+  if(!S.gcal.token) return;
+  showLoading('予定を取得中…');
+  try{
+    const now=new Date();
+    const min=new Date(now.getFullYear(), now.getMonth()-1, 1).toISOString();
+    const max=new Date(now.getFullYear(), now.getMonth()+3, 0).toISOString();
+    let r=await gcalFetch(`/calendars/primary/events?timeMin=${min}&timeMax=${max}&singleEvents=true&orderBy=startTime&maxResults=250`);
+    if(r.status===401){await ensureToken(true);r=await gcalFetch(`/calendars/primary/events?timeMin=${min}&timeMax=${max}&singleEvents=true&orderBy=startTime&maxResults=250`);}
+    if(!r.ok) throw new Error('取得失敗');
+    const data=await r.json();
+    S.events=(data.items||[]).map(ev=>({...ev,_google:true}));
+    refreshUpcoming();
+    renderCalendar();
+  }catch(e){showToast('予定取得エラー: '+e.message,'error');}
+  finally{hideLoading();}
+}
+
+// ══════════════════════════════════════════════════════
+// UPCOMING (home)
+// ══════════════════════════════════════════════════════
+function refreshUpcoming(){
+  const list=document.getElementById('upcomingList');
+  const today=new Date(); today.setHours(0,0,0,0);
+  const future=S.events
+    .filter(ev=>{
+      const d=new Date((ev.start?.dateTime||ev.start?.date||'')+'');
+      return d>=today;
+    })
+    .sort((a,b)=>{
+      return new Date(a.start?.dateTime||a.start?.date||'')-new Date(b.start?.dateTime||b.start?.date||'');
+    })
+    .slice(0,5);
+
+  if(!future.length){
+    list.innerHTML='<div id="upcomingEmpty" style="font-size:12px;color:var(--ink-muted);font-family:\'DM Mono\',monospace;font-style:italic;text-align:center;padding:16px 0">直近の予定はありません</div>';
+    return;
+  }
+  list.innerHTML=future.map(ev=>{
+    const dt=new Date(ev.start?.dateTime||ev.start?.date||'');
+    const day=dt.getDate();
+    const dow=['日','月','火','水','木','金','土'][dt.getDay()];
+    const isToday=dt.toDateString()===new Date().toDateString();
+    const time=ev.start?.dateTime?`${ev.start.dateTime.slice(11,16)} – ${ev.end.dateTime.slice(11,16)}`:'終日';
+    return `<div class="upcoming-item" onclick="openDetailFromEvent('${ev.id}')">
+      <div class="upcoming-date-block"><div class="upcoming-day">${day}</div><div class="upcoming-dow">${dow}</div></div>
+      <div class="upcoming-divider"></div>
+      <div class="upcoming-info">
+        <div class="upcoming-title">${ev.summary||'無題'}${isToday?'<span class="today-badge">今日</span>':''}</div>
+        <div class="upcoming-time">${time}</div>
+        ${ev.location?`<div class="upcoming-loc">📍 ${ev.location}</div>`:''}
+      </div>
+      <div class="upcoming-arrow"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M9 18l6-6-6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════
+// CALENDAR PAGE
+// ══════════════════════════════════════════════════════
+function renderCalendar(){
+  const yr=S.calYear, mo=S.calMonth;
+  document.getElementById('calMonthLabel').textContent=`${yr}年 ${mo+1}月`;
+
+  const first=new Date(yr,mo,1);
+  const last=new Date(yr,mo+1,0);
+  const startDow=first.getDay();
+  const todayStr=new Date().toISOString().split('T')[0];
+
+  let html='';
+  ['日','月','火','水','木','金','土'].forEach(d=>html+=`<div class="cal-dow">${d}</div>`);
+
+  // blank cells before month
+  for(let i=0;i<startDow;i++) html+=`<div class="cal-cell other-month"></div>`;
+
+  for(let d=1;d<=last.getDate();d++){
+    const dateStr=`${yr}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isToday=dateStr===todayStr;
+    const isSel=dateStr===S.calSelected;
+    const evs=S.events.filter(ev=>(ev.start?.dateTime||ev.start?.date||'').startsWith(dateStr));
+    const dots=evs.slice(0,4).map(ev=>`<div class="cal-event-dot${ev._google?' google':''}"></div>`).join('');
+    html+=`<div class="cal-cell${isToday?' today':''}${isSel?' selected':''}" onclick="selectDay('${dateStr}')">
+      <div class="cal-num">${d}</div>
+      <div class="cal-dot-row">${dots}</div>
+    </div>`;
+  }
+
+  document.getElementById('calGrid').innerHTML=html;
+  if(S.calSelected) renderDayEvents(S.calSelected);
+}
+
+function selectDay(dateStr){
+  S.calSelected=dateStr;
+  renderCalendar();
+  renderDayEvents(dateStr);
+}
+
+function renderDayEvents(dateStr){
+  const dt=new Date(dateStr+'T00:00');
+  const dow=['日','月','火','水','木','金','土'][dt.getDay()];
+  document.getElementById('dayEventsTitle').textContent=
+    `${dt.getMonth()+1}月${dt.getDate()}日（${dow}）の予定`;
+
+  const evs=S.events
+    .filter(ev=>(ev.start?.dateTime||ev.start?.date||'').startsWith(dateStr))
+    .sort((a,b)=>new Date(a.start?.dateTime||a.start?.date||'')-new Date(b.start?.dateTime||b.start?.date||''));
+
+  const list=document.getElementById('eventList');
+  if(!evs.length){
+    list.innerHTML='<div style="font-size:12px;color:var(--ink-muted);font-family:\'DM Mono\',monospace;font-style:italic;padding:12px 0">この日の予定はありません</div>';
+    return;
+  }
+  list.innerHTML=evs.map(ev=>{
+    const time=ev.start?.dateTime?`${ev.start.dateTime.slice(11,16)} – ${ev.end.dateTime.slice(11,16)}`:'終日';
+    const sub=[ev.location,ev.description].filter(Boolean).join(' · ');
+    return `<div class="event-item" onclick="openDetailFromEvent('${ev.id}')">
+      <div class="event-time-block"><div class="event-time">${time.replace(' – ','\n– ')}</div></div>
+      <div class="event-body">
+        <div class="event-title">${ev.summary||'無題'}</div>
+        ${sub?`<div class="event-sub">${sub}</div>`:''}
+      </div>
+      <span class="event-badge ${ev._google?'google':'local'}">${ev._google?'GCal':'ローカル'}</span>
+    </div>`;
+  }).join('');
+}
+
+function calPrev(){ if(S.calMonth===0){S.calMonth=11;S.calYear--;}else S.calMonth--; renderCalendar(); }
+function calNext(){ if(S.calMonth===11){S.calMonth=0;S.calYear++;}else S.calMonth++; renderCalendar(); }
+
+// ══════════════════════════════════════════════════════
+// DETAIL SHEET
+// ══════════════════════════════════════════════════════
+function openDetailFromEvent(id){
+  const ev=S.events.find(e=>e.id===id);
+  if(!ev) return;
+  S.detailEvent=ev;
+  document.getElementById('detailTitle').textContent=ev.summary||'無題';
+  const dateStr=(ev.start?.dateTime||ev.start?.date||'').slice(0,10);
+  const dt=new Date(dateStr+'T00:00');
+  const dow=['日','月','火','水','木','金','土'][dt.getDay()];
+  document.getElementById('detailDate').textContent=`${dt.getFullYear()}年${dt.getMonth()+1}月${dt.getDate()}日（${dow}）`;
+  const time=ev.start?.dateTime?`${ev.start.dateTime.slice(11,16)} 〜 ${ev.end.dateTime.slice(11,16)}`:'終日';
+  document.getElementById('detailTime').textContent=time;
+  const locRow=document.getElementById('detailLocRow');
+  locRow.style.display=ev.location?'flex':'none';
+  document.getElementById('detailLoc').textContent=ev.location||'';
+  const notesRow=document.getElementById('detailNotesRow');
+  notesRow.style.display=ev.description?'flex':'none';
+  document.getElementById('detailNotes').textContent=ev.description||'';
+  document.getElementById('detailSheet').classList.add('show');
+}
+function closeDetail(){ document.getElementById('detailSheet').classList.remove('show'); }
+
+function editFromDetail(){
+  const ev=S.detailEvent; if(!ev) return;
+  closeDetail();
+  setMode('edit');
+  const dateStr=(ev.start?.dateTime||ev.start?.date||'').slice(0,10);
+  const start=ev.start?.dateTime?ev.start.dateTime.slice(11,16):'09:00';
+  const end=ev.end?.dateTime?ev.end.dateTime.slice(11,16):'10:00';
+  showSingleMatch(ev,{title:ev.summary,date:dateStr,startTime:start,endTime:end,location:ev.location||'',notes:ev.description||''});
+  document.getElementById('cardHeader').className='card-header edit';
+  document.getElementById('cardHeaderText').textContent='変更する予定を確認してください';
+  document.getElementById('execBtn').innerHTML='✎ 変更を保存';
+  document.getElementById('execBtn').className='btn btn-primary';
+  document.getElementById('parseCard').classList.add('visible');
+  nav('home');
+  setTimeout(()=>document.getElementById('parseCard').scrollIntoView({behavior:'smooth',block:'nearest'}),300);
+}
+
+async function deleteFromDetail(){
+  const ev=S.detailEvent; if(!ev) return;
+  closeDetail();
+  setMode('delete');
+  S.pendingAction={type:'delete',targetId:ev.id,eventObj:ev};
+  const yes=await showConfirm('予定を削除しますか？',`「${ev.summary||'無題'}」を削除します。この操作は取り消せません。`,'削除する');
+  if(!yes){S.pendingAction=null;return;}
+  showLoading('削除中…');
+  try{
+    if(getClientId()&&S.gcal.token){
+      let r=await gcalDelete('/calendars/primary/events/'+ev.id);
+      if(r.status===401){await ensureToken(true);r=await gcalDelete('/calendars/primary/events/'+ev.id);}
+    }
+    S.events=S.events.filter(e=>e.id!==ev.id);
+    addHistory({label:'削除',title:ev.summary||'無題',date:'',start:'',end:'',status:'success'});
+    showToast('予定を削除しました ✓','success');
+    refreshUpcoming(); renderCalendar();
+  }catch(e){showToast('削除に失敗: '+e.message,'error');}
+  finally{hideLoading();}
+}
+
+// ══════════════════════════════════════════════════════
+// CONFIRM DIALOG
+// ══════════════════════════════════════════════════════
+function showConfirm(title, msg, okLabel='実行'){
+  return new Promise(resolve=>{
+    S.pendingConfirm=resolve;
+    document.getElementById('confirmTitle').textContent=title;
+    document.getElementById('confirmMsg').innerHTML=msg;
+    document.getElementById('confirmOkBtn').textContent=okLabel;
+    document.getElementById('confirmOverlay').classList.add('show');
+  });
+}
+function confirmResolve(yes){
+  document.getElementById('confirmOverlay').classList.remove('show');
+  if(S.pendingConfirm){S.pendingConfirm(yes);S.pendingConfirm=null;}
+}
+
+// ══════════════════════════════════════════════════════
+// HISTORY
+// ══════════════════════════════════════════════════════
+function addHistory(h){ S.history.unshift(h); renderHistory(); }
+function renderHistory(){
+  const list=document.getElementById('historyList');
+  if(!S.history.length){
+    list.innerHTML='<div style="font-size:12px;color:var(--ink-muted);font-family:\'DM Mono\',monospace;font-style:italic;text-align:center;padding:16px 0">まだ操作履歴がありません</div>';
+    return;
+  }
+  list.innerHTML=S.history.slice(0,8).map(h=>{
+    const dt=h.date?new Date(h.date+'T00:00').toLocaleDateString('ja-JP',{month:'short',day:'numeric',weekday:'short'}):'';
+    return `<div class="history-item ${h.status}">
+      <div class="hdot"></div>
+      <div class="h-content"><div class="h-title">${h.label}: ${h.title}</div><div class="h-meta">${dt}${h.start?' '+h.start+' – '+h.end:''}</div></div>
+      <div class="h-label">${h.status==='success'?'完了':'エラー'}</div>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════
+// LOADING / TOAST / UTILS
+// ══════════════════════════════════════════════════════
+function showLoading(msg='処理中…'){
+  document.getElementById('loadingMsg').textContent=msg;
+  document.getElementById('loadingOverlay').classList.add('show');
+}
+function hideLoading(){ document.getElementById('loadingOverlay').classList.remove('show'); }
+
+let _toastTimer;
+function showToast(msg,type=''){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className='toast show'+(type?' '+type:'');
+  clearTimeout(_toastTimer);
+  _toastTimer=setTimeout(()=>t.classList.remove('show'),2800);
+}
+
+function formatEventDate(ev){
+  const dt=new Date(ev.start?.dateTime||ev.start?.date||'');
+  const time=ev.start?.dateTime?`${ev.start.dateTime.slice(11,16)} – ${ev.end.dateTime.slice(11,16)}`:'終日';
+  return `${dt.getMonth()+1}/${dt.getDate()} ${time}`;
+}
+function delay(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
+
+// ══════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════
+initSpeech();
+refreshDots();
+document.getElementById('autoParseToggle').checked=getPref('autoParse',false);
+
+// GIS初期化（非同期読み込み完了を待つ）
+window.addEventListener('load',()=>{
+  let waited=0;
+  const poll=setInterval(()=>{
+    waited+=100;
+    if(window.google?.accounts?.oauth2){clearInterval(poll);initGIS();}
+    else if(waited>=4000) clearInterval(poll);
+  },100);
+});
+
+if(!getGeminiKey()){
+  setTimeout(()=>showToast('設定画面でGemini APIキーを設定してください'),800);
+}
+</script>
+</body>
+</html>
