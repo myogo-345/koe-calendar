@@ -255,13 +255,19 @@ main{padding:28px 0 24px}
 .tz-stay-name{font-size:12px;font-family:'DM Mono',monospace;color:var(--ink)}
 .tz-stay-period{font-size:11px;font-family:'DM Mono',monospace;color:var(--ink-muted);margin-top:2px}
 .tz-alert-box{background:var(--accent-light);border-top:1px solid rgba(196,90,42,.15);padding:14px 18px}
-.tz-alert-title{font-size:12px;font-family:'DM Mono',monospace;font-weight:bold;color:var(--accent);margin-bottom:8px}
-.tz-alert-body{font-size:12px;font-family:'DM Mono',monospace;line-height:2.1;color:var(--ink);margin-bottom:12px}
-.tz-btn-row{display:flex;gap:8px}
-.tz-btn-local{flex:1;min-height:44px;border:1.5px solid var(--accent);background:#fff;color:var(--accent);border-radius:10px;font-size:12px;font-family:'DM Mono',monospace;cursor:pointer;transition:all .2s}
-.tz-btn-local:hover{background:var(--accent);color:#fff}
-.tz-btn-japan{flex:1;min-height:44px;border:1px solid var(--border);background:var(--surface);color:var(--ink);border-radius:10px;font-size:12px;font-family:'DM Mono',monospace;cursor:pointer;transition:all .2s}
-.tz-btn-japan:hover{background:var(--ink);color:#fff}
+.tz-alert-title{font-size:12px;font-family:'DM Mono',monospace;font-weight:bold;color:var(--accent);margin-bottom:10px}
+/* ── 時差パターンカード ── */
+.tz-pattern-cards{display:flex;flex-direction:column;gap:10px}
+.tz-pattern-card{border:1.5px solid var(--border);border-radius:11px;padding:12px 14px;background:var(--surface);cursor:pointer;transition:border-color .15s,background .15s}
+.tz-pattern-card:hover{border-color:rgba(196,90,42,.4)}
+.tz-pattern-card.selected{border-color:var(--accent);background:#fff}
+.tz-pattern-title{font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.1em;color:var(--ink-muted);margin-bottom:7px;text-transform:uppercase}
+.tz-pattern-row{font-size:12px;font-family:'DM Mono',monospace;line-height:2;color:var(--ink)}
+.tz-pattern-btn{width:100%;min-height:44px;border-radius:9px;font-size:12px;font-family:'DM Mono',monospace;cursor:pointer;margin-top:10px;border:none;transition:opacity .15s;font-weight:400}
+.tz-pattern-btn.local{background:var(--accent);color:#fff}
+.tz-pattern-btn.local:hover{opacity:.85}
+.tz-pattern-btn.japan{background:var(--ink);color:#fff}
+.tz-pattern-btn.japan:hover{opacity:.85}
 
 /* ── All-day toggle ── */
 .allday-toggle-row{display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:6px;background:var(--surface)}
@@ -437,12 +443,8 @@ footer{padding:20px 0;border-top:1px solid var(--border);font-size:10px;color:va
 
       <!-- 時差アラート -->
       <div id="tzAlert" style="display:none" class="tz-alert-box">
-        <div class="tz-alert-title">⚠️ 時差に注意</div>
-        <div class="tz-alert-body" id="tzAlertBody"></div>
-        <div class="tz-btn-row">
-          <button class="tz-btn-local" onclick="execWithTz('local')">🌏 現地時間で登録</button>
-          <button class="tz-btn-japan" onclick="execWithTz('japan')">🇯🇵 日本時間で登録</button>
-        </div>
+        <div class="tz-alert-title">⚠️ 時差に注意 &nbsp;—&nbsp; 入力した時間：<span id="tzInputTime"></span></div>
+        <div class="tz-pattern-cards" id="tzPatternCards"></div>
       </div>
 
       <div class="card-actions" id="cardActions">
@@ -1042,7 +1044,6 @@ function utcMsToLocal(ms,tz){
 
 function checkTzAlert(date,startTime,endTime){
   const alertEl=document.getElementById('tzAlert');
-  const body   =document.getElementById('tzAlertBody');
   const execBtn=document.getElementById('execBtn');
   if(!alertEl) return;
   if(!date||!startTime){
@@ -1055,33 +1056,55 @@ function checkTzAlert(date,startTime,endTime){
     S._activeTzStay=null;return;
   }
   S._activeTzStay=stay;
-  const city=getTzCity(stay.tz);
-  const off =getTzOffset(stay.tz);
+  const city=stay.cityName||getTzCity(stay.tz);
+  const off=getTzOffset(stay.tz);
 
-  const utcStart=localToUtcMs(date,startTime,stay.tz);
-  const jpStart =utcMsToLocal(utcStart,'Asia/Tokyo');
-  const dayLabel=jpStart.date!==date?(jpStart.date>date?'翌日 ':'前日 '):'';
-
-  let timeRow=`入力した時間：<strong>${startTime}</strong>`;
-  let localRow=`🌏 ${city}（${off}）：<strong>${startTime}</strong>`;
-  let jpRow   =`🇯🇵 日本時間（JST）：<strong>${dayLabel}${jpStart.time}</strong>`;
-
-  if(endTime){
-    const utcEnd=localToUtcMs(date,endTime,stay.tz);
-    const jpEnd =utcMsToLocal(utcEnd,'Asia/Tokyo');
-    const endLabel=jpEnd.date!==date?(jpEnd.date>date?'翌日 ':'前日 '):'';
-    timeRow =`入力した時間：<strong>${startTime} 〜 ${endTime}</strong>`;
-    localRow=`🌏 ${city}（${off}）：<strong>${startTime} 〜 ${endTime}</strong>`;
-    jpRow   =`🇯🇵 日本時間（JST）：<strong>${dayLabel}${jpStart.time} 〜 ${endLabel}${jpEnd.time}</strong>`;
+  // 時刻変換ヘルパー: dateStr+timeStr を fromTz 解釈して toTz の時刻文字列へ
+  function convertTime(timeStr,fromTz,toTz){
+    const utcMs=localToUtcMs(date,timeStr,fromTz);
+    const r=utcMsToLocal(utcMs,toTz);
+    const dayLabel=r.date>date?'翌日 ':r.date<date?'前日 ':'';
+    return dayLabel+r.time;
+  }
+  function convertRange(fromTz,toTz){
+    const s=convertTime(startTime,fromTz,toTz);
+    return endTime?`${s} 〜 ${convertTime(endTime,fromTz,toTz)}`:s;
   }
 
-  body.innerHTML=`${timeRow}<br>${localRow}<br>${jpRow}`;
+  // パターンA: 入力 = 現地時間 → 日本時間を表示
+  const jpFromLocal =convertRange(stay.tz,'Asia/Tokyo');
+  // パターンB: 入力 = 日本時間 → 現地時間を表示
+  const localFromJp =convertRange('Asia/Tokyo',stay.tz);
+
+  const inputDisp=endTime?`${startTime} 〜 ${endTime}`:startTime;
+  const startDisp=startTime;
+
+  document.getElementById('tzInputTime').textContent=inputDisp;
+  document.getElementById('tzPatternCards').innerHTML=`
+    <div class="tz-pattern-card" id="tzCardA">
+      <div class="tz-pattern-title">パターン A｜${city}の現地時間で登録</div>
+      <div class="tz-pattern-row">🌏 ${city}（${off}）：<strong>${inputDisp}</strong></div>
+      <div class="tz-pattern-row">🇯🇵 日本時間（JST）：<strong>${jpFromLocal}</strong></div>
+      <button class="tz-pattern-btn local" onclick="execWithTz('local')">🌏 ${city} ${startDisp} で登録</button>
+    </div>
+    <div class="tz-pattern-card" id="tzCardB">
+      <div class="tz-pattern-title">パターン B｜日本時間で登録</div>
+      <div class="tz-pattern-row">🇯🇵 日本時間（JST）：<strong>${inputDisp}</strong></div>
+      <div class="tz-pattern-row">🌏 ${city}（${off}）：<strong>${localFromJp}</strong></div>
+      <button class="tz-pattern-btn japan" onclick="execWithTz('japan')">🇯🇵 日本時間 ${startDisp} で登録</button>
+    </div>`;
+
   alertEl.style.display='block';
-  execBtn.style.display='none'; // tz選択ボタンで代替
+  execBtn.style.display='none';
 }
 
 async function execWithTz(mode){
+  // 選択パターンをハイライト
+  document.getElementById('tzCardA')?.classList.toggle('selected',mode==='local');
+  document.getElementById('tzCardB')?.classList.toggle('selected',mode==='japan');
   S.tzMode=mode;
+  // 少し遅らせてハイライトを見せてから実行
+  await delay(150);
   document.getElementById('tzAlert').style.display='none';
   document.getElementById('execBtn').style.display='';
   await execAction();
