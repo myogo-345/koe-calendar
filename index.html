@@ -263,6 +263,11 @@ main{padding:28px 0 24px}
 .tz-btn-japan{flex:1;min-height:44px;border:1px solid var(--border);background:var(--surface);color:var(--ink);border-radius:10px;font-size:12px;font-family:'DM Mono',monospace;cursor:pointer;transition:all .2s}
 .tz-btn-japan:hover{background:var(--ink);color:#fff}
 
+/* ── All-day toggle ── */
+.allday-toggle-row{display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:6px;background:var(--surface)}
+.allday-tab{flex:1;padding:5px 8px;border:none;background:transparent;font-size:11px;font-family:'DM Mono',monospace;cursor:pointer;transition:all .2s;color:var(--ink-muted)}
+.allday-tab.active{background:var(--blue-light);color:var(--blue);font-weight:400}
+
 /* ── GCal home badge ── */
 .gcal-home-wrap{margin-bottom:16px}
 .gcal-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-family:'DM Mono',monospace;color:var(--green);background:var(--green-light);border:1px solid rgba(58,125,94,.2);border-radius:20px;padding:5px 12px;cursor:default}
@@ -396,7 +401,13 @@ footer{padding:20px 0;border-top:1px solid var(--border);font-size:10px;color:va
       <div id="cardFields">
         <div class="parse-fields">
           <div class="pf"><label>タイトル</label><input type="text" id="fTitle" placeholder="予定のタイトル"></div>
-          <div class="pf"><label>日時</label><div class="dt-row"><input type="date" id="fDate"><input type="time" id="fStart"><input type="time" id="fEnd"></div></div>
+          <div class="pf"><label>日時</label><div>
+            <div class="allday-toggle-row">
+              <button type="button" class="allday-tab active" id="btnTimed" onclick="setAlldayMode(false)">⏰ 時間指定</button>
+              <button type="button" class="allday-tab" id="btnAllday" onclick="setAlldayMode(true)">📅 終日</button>
+            </div>
+            <div class="dt-row"><input type="date" id="fDate"><span id="dtTimePart" style="display:contents"><input type="time" id="fStart"><input type="time" id="fEnd"></span><input type="date" id="fEndDate" style="display:none;flex:1;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:13px;font-family:'Noto Serif JP',serif;background:var(--bg);color:var(--ink)"></div>
+          </div></div>
           <div class="pf"><label>場所</label><input type="text" id="fLoc" placeholder="場所（任意）"></div>
           <div class="pf"><label>メモ</label><textarea id="fNotes" placeholder="メモ（任意）"></textarea></div>
         </div>
@@ -697,6 +708,7 @@ const S = {
   editTargetId: null,    // google event id for edit
   tzMode: null,          // 'local' | 'japan' | null
   _activeTzStay: null,   // stay object matched to parse card date
+  isAllDay: false,       // all-day / multi-day event mode
 };
 
 // ══════════════════════════════════════════════════════
@@ -752,16 +764,64 @@ function getTzOffset(tz){
 
 function getTzCity(tz){return tz.split('/').pop().replace(/_/g,' ');}
 
+function detectTzFromLocation(loc){
+  const l=loc.toLowerCase();
+  for(const [alias,tz] of Object.entries(TZ_ALIASES)){
+    if(l.includes(alias)) return tz;
+  }
+  for(const tz of getAllTz()){
+    const city=tz.split('/').pop().replace(/_/g,' ').toLowerCase();
+    if(city.length>=3&&l.includes(city)&&tz!=='Asia/Tokyo') return tz;
+  }
+  return null;
+}
+
 function getStays(){return LS.getJ('stays',[]);}
 function saveStays(a){LS.setJ('stays',a);}
 
 function getActiveStay(dateStr){
+  // 1. 手動登録した滞在先を確認
   for(const s of getStays()){
     const from=s.startDate||'0000-01-01';
     const to  =s.endDate  ||'9999-12-31';
     if(dateStr>=from&&dateStr<=to) return s;
   }
+  // 2. GCalの終日イベント（location付き）を滞在フラグとして活用
+  for(const ev of S.events){
+    if(!ev.start?.date||ev.start?.dateTime) continue; // 終日イベントのみ
+    const startStr=ev.start.date;
+    const endStr  =ev.end?.date||startStr; // Google Calは終了日が翌日（exclusive）
+    if(dateStr>=startStr&&dateStr<endStr){
+      const loc=ev.location||'';
+      if(!loc) continue;
+      const tz=detectTzFromLocation(loc);
+      if(tz&&tz!=='Asia/Tokyo') return{tz,startDate:startStr,endDate:endStr,_fromEvent:true,eventTitle:ev.summary};
+    }
+  }
   return null;
+}
+
+function setAlldayMode(on){
+  S.isAllDay=on;
+  document.getElementById('btnTimed').classList.toggle('active',!on);
+  document.getElementById('btnAllday').classList.toggle('active',on);
+  const timePart=document.getElementById('dtTimePart');
+  const endDate=document.getElementById('fEndDate');
+  if(timePart) timePart.style.display=on?'none':'contents';
+  if(endDate)  endDate.style.display=on?''   :'none';
+  if(on){
+    // 終日モードでは時差アラート不要
+    document.getElementById('tzAlert').style.display='none';
+    document.getElementById('execBtn').style.display='';
+    S._activeTzStay=null;
+  } else {
+    // 時間指定モードに戻したら再チェック
+    checkTzAlert(
+      document.getElementById('fDate').value,
+      document.getElementById('fStart').value,
+      document.getElementById('fEnd').value
+    );
+  }
 }
 
 let _selectedTz='';
@@ -1190,8 +1250,8 @@ async function runParse(){
       prompt=`今日は${today}(${dow}曜)、明日は${tomorrow}。
 以下の日本語テキストからカレンダー予定情報を抽出しJSONのみ返してください。
 テキスト:"${text}"
-{"intent":"add","title":"タイトル","date":"YYYY-MM-DD","startTime":"HH:MM","endTime":"HH:MM","location":"場所(不明なら空)","notes":"メモ(不明なら空)"}
-注意:時間不明はstart=09:00,end=1時間後。相対表現を正確に解釈。`;
+{"intent":"add","title":"タイトル","date":"YYYY-MM-DD","endDate":"YYYY-MM-DD(複数日終日イベントの最終日、単日か時間指定なら空)","isAllDay":false,"startTime":"HH:MM","endTime":"HH:MM","location":"場所(不明なら空)","notes":"メモ(不明なら空)"}
+注意:時間が明示されない場合はisAllDay=true。「〇日から△日まで」など複数日はisAllDay=true＋endDateを設定。時間指定はisAllDay=false。相対表現を正確に解釈。`;
     } else {
       // edit or delete: タイトルキーワードと日時変更を抽出
       prompt=`今日は${today}(${dow}曜)、明日は${tomorrow}。
@@ -1256,11 +1316,14 @@ function applyParsed(d){
     document.getElementById('fEnd').value=d.endTime||'10:00';
     document.getElementById('fLoc').value=d.location||'';
     document.getElementById('fNotes').value=d.notes||'';
+    // 終日モード
+    setAlldayMode(!!d.isAllDay);
+    if(d.isAllDay && d.endDate) document.getElementById('fEndDate').value=d.endDate;
     execBtn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M8 14l3 3 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> カレンダーに追加';
     execBtn.className='btn btn-primary';
     reparseBtn.style.display='';
     S.pendingAction={type:'add',data:d};
-    checkTzAlert(d.date, d.startTime, d.endTime);
+    if(!d.isAllDay) checkTzAlert(d.date, d.startTime, d.endTime);
   } else {
     // edit or delete: find matching events
     const kw=(d.searchKeyword||d.title||'').toLowerCase();
@@ -1367,6 +1430,7 @@ function showSingleMatch(ev, d){
     // edit: 元の予定を上部に表示してフォームに反映
     fields.style.display='block'; delArea.style.display='none';
     showOriginalEventInfo(ev, '変更前の予定');
+    const evIsAllDay=ev.start?.date&&!ev.start?.dateTime;
     const exStart=ev.start?.dateTime?ev.start.dateTime.slice(11,16):'09:00';
     const exEnd  =ev.end?.dateTime?ev.end.dateTime.slice(11,16):'10:00';
     const exDate =(ev.start?.dateTime||ev.start?.date||'').slice(0,10);
@@ -1376,8 +1440,15 @@ function showSingleMatch(ev, d){
     document.getElementById('fEnd').value=d.endTime||exEnd;
     document.getElementById('fLoc').value=d.location||ev.location||'';
     document.getElementById('fNotes').value=d.notes||ev.description||'';
-    S.pendingAction={type:'edit',targetId:ev.id,data:d};
-    checkTzAlert(
+    setAlldayMode(!!evIsAllDay);
+    if(evIsAllDay&&ev.end?.date){
+      // Google Calは終了日がexclusive → 1日戻して表示
+      const endD=new Date(ev.end.date+'T00:00');
+      endD.setDate(endD.getDate()-1);
+      document.getElementById('fEndDate').value=endD.toISOString().slice(0,10);
+    }
+    S.pendingAction={type:'edit',targetId:ev.id,data:d,isAllDay:!!evIsAllDay};
+    if(!evIsAllDay) checkTzAlert(
       document.getElementById('fDate').value,
       document.getElementById('fStart').value,
       document.getElementById('fEnd').value
@@ -1409,23 +1480,43 @@ async function execAction(){
     const end=document.getElementById('fEnd').value;
     const loc=document.getElementById('fLoc').value.trim();
     const notes=document.getElementById('fNotes').value.trim();
-    if(!title||!date||!start){showToast('タイトルと日時は必須です','error');btn.disabled=false;return;}
+    const isAllDay=S.isAllDay;
+
+    if(isAllDay){
+      if(!title||!date){showToast('タイトルと日付は必須です','error');btn.disabled=false;return;}
+    } else {
+      if(!title||!date||!start){showToast('タイトルと日時は必須です','error');btn.disabled=false;return;}
+    }
+
+    // 終日イベントの終了日（Googleは翌日exclusive）
+    function calcEndDate(){
+      const raw=document.getElementById('fEndDate').value||date;
+      const d=new Date(raw+'T00:00'); d.setDate(d.getDate()+1);
+      return d.toISOString().slice(0,10);
+    }
 
     btn.innerHTML='<div class="sp"></div> 追加中…';
     if(!getClientId()){
       // demo
       await delay(700);
-      S.events.push({id:'local_'+Date.now(),summary:title,start:{dateTime:`${date}T${start}:00`},end:{dateTime:`${date}T${end}:00`},location:loc,description:notes,_local:true});
-      addHistory({label:'追加',title,date,start,end,status:'success'});
+      if(isAllDay){
+        S.events.push({id:'local_'+Date.now(),summary:title,start:{date},end:{date:calcEndDate()},location:loc,description:notes,_local:true});
+      } else {
+        S.events.push({id:'local_'+Date.now(),summary:title,start:{dateTime:`${date}T${start}:00`},end:{dateTime:`${date}T${end}:00`},location:loc,description:notes,_local:true});
+      }
+      addHistory({label:'追加',title,date,start:isAllDay?'終日':start,end,status:'success'});
       showToast('追加しました ✓（デモ）','success');
       clearCard(); refreshUpcoming(); btn.innerHTML=SAVE_ICON; btn.disabled=false; return;
     }
     const ok=await ensureToken();
     if(!ok){btn.innerHTML=SAVE_ICON;btn.disabled=false;return;}
     try{
-      const r=await gcalPost('/calendars/primary/events',{summary:title,location:loc,description:notes,start:{dateTime:`${date}T${start}:00`,timeZone:_tz},end:{dateTime:`${date}T${end}:00`,timeZone:_tz}});
-      if(r.status===401){const ref=await ensureToken(true);if(!ref){btn.disabled=false;return;}await gcalPost('/calendars/primary/events',{summary:title,location:loc,description:notes,start:{dateTime:`${date}T${start}:00`,timeZone:_tz},end:{dateTime:`${date}T${end}:00`,timeZone:_tz}});}
-      addHistory({label:'追加',title,date,start,end,status:'success'});
+      const body=isAllDay
+        ?{summary:title,location:loc,description:notes,start:{date},end:{date:calcEndDate()}}
+        :{summary:title,location:loc,description:notes,start:{dateTime:`${date}T${start}:00`,timeZone:_tz},end:{dateTime:`${date}T${end}:00`,timeZone:_tz}};
+      const r=await gcalPost('/calendars/primary/events',body);
+      if(r.status===401){const ref=await ensureToken(true);if(!ref){btn.disabled=false;return;}await gcalPost('/calendars/primary/events',body);}
+      addHistory({label:'追加',title,date,start:isAllDay?'終日':start,end,status:'success'});
       showToast('カレンダーに追加しました ✓','success');
       clearCard(); await fetchEvents();
     }catch(e){addHistory({label:'追加',title,date,start,end,status:'error'});showToast('追加に失敗: '+e.message,'error');}
@@ -1439,29 +1530,49 @@ async function execAction(){
     const end=document.getElementById('fEnd').value;
     const loc=document.getElementById('fLoc').value.trim();
     const notes=document.getElementById('fNotes').value.trim();
-    if(!title||!date||!start){showToast('タイトルと日時は必須です','error');btn.disabled=false;return;}
+    const isAllDay=S.isAllDay;
 
-    // confirm
-    const yes=await showConfirm('予定を変更しますか？',`「${title}」を${date} ${start}〜${end} に変更します`,'変更する');
+    if(isAllDay){
+      if(!title||!date){showToast('タイトルと日付は必須です','error');btn.disabled=false;return;}
+    } else {
+      if(!title||!date||!start){showToast('タイトルと日時は必須です','error');btn.disabled=false;return;}
+    }
+
+    function calcEditEndDate(){
+      const raw=document.getElementById('fEndDate').value||date;
+      const d=new Date(raw+'T00:00'); d.setDate(d.getDate()+1);
+      return d.toISOString().slice(0,10);
+    }
+
+    const confirmDetail=isAllDay
+      ?`「${title}」を${date}〜${document.getElementById('fEndDate').value||date}（終日）に変更します`
+      :`「${title}」を${date} ${start}〜${end} に変更します`;
+    const yes=await showConfirm('予定を変更しますか？',confirmDetail,'変更する');
     if(!yes){btn.innerHTML='✎ 変更を保存';btn.disabled=false;return;}
 
     btn.innerHTML='<div class="sp"></div> 変更中…';
     if(!getClientId()||!action.targetId){
       await delay(700);
       const idx=S.events.findIndex(e=>e.id===action.targetId);
-      if(idx>=0){S.events[idx]={...S.events[idx],summary:title,start:{dateTime:`${date}T${start}:00`},end:{dateTime:`${date}T${end}:00`},location:loc,description:notes};}
-      addHistory({label:'変更',title,date,start,end,status:'success'});
+      if(idx>=0){
+        S.events[idx]=isAllDay
+          ?{...S.events[idx],summary:title,start:{date},end:{date:calcEditEndDate()},location:loc,description:notes}
+          :{...S.events[idx],summary:title,start:{dateTime:`${date}T${start}:00`},end:{dateTime:`${date}T${end}:00`},location:loc,description:notes};
+      }
+      addHistory({label:'変更',title,date,start:isAllDay?'終日':start,end,status:'success'});
       showToast('変更しました ✓（デモ）','success');
       clearCard(); refreshUpcoming(); btn.innerHTML='✎ 変更を保存'; btn.disabled=false; return;
     }
     const ok=await ensureToken();
     if(!ok){btn.disabled=false;return;}
     try{
-      const body={summary:title,location:loc,description:notes,start:{dateTime:`${date}T${start}:00`,timeZone:_tz},end:{dateTime:`${date}T${end}:00`,timeZone:_tz}};
+      const body=isAllDay
+        ?{summary:title,location:loc,description:notes,start:{date},end:{date:calcEditEndDate()}}
+        :{summary:title,location:loc,description:notes,start:{dateTime:`${date}T${start}:00`,timeZone:_tz},end:{dateTime:`${date}T${end}:00`,timeZone:_tz}};
       let r=await gcalPatch('/calendars/primary/events/'+action.targetId,body);
       if(r.status===401){await ensureToken(true);r=await gcalPatch('/calendars/primary/events/'+action.targetId,body);}
       if(!r.ok) throw new Error((await r.json()).error?.message||'APIエラー');
-      addHistory({label:'変更',title,date,start,end,status:'success'});
+      addHistory({label:'変更',title,date,start:isAllDay?'終日':start,end,status:'success'});
       showToast('予定を変更しました ✓','success');
       clearCard(); await fetchEvents();
     }catch(e){showToast('変更に失敗: '+e.message,'error');}
@@ -1503,6 +1614,7 @@ function clearCard(){
   document.getElementById('tzAlert').style.display='none';
   document.getElementById('execBtn').style.display='';
   S.pendingAction=null; S.tzMode=null; S._activeTzStay=null;
+  setAlldayMode(false);
   setMode('add');
 }
 
@@ -1542,7 +1654,11 @@ function refreshUpcoming(){
   const today=new Date(); today.setHours(0,0,0,0);
   const future=S.events
     .filter(ev=>{
-      const d=new Date((ev.start?.dateTime||ev.start?.date||'')+'');
+      // 複数日終日イベントは終了日（exclusive）が今日より後ならまだ有効
+      if(ev.start?.date&&!ev.start?.dateTime&&ev.end?.date){
+        return new Date(ev.end.date+'T00:00')>today;
+      }
+      const d=new Date((ev.start?.dateTime||ev.start?.date||'')+'T00:00');
       return d>=today;
     })
     .sort((a,b)=>{
@@ -1598,7 +1714,15 @@ function renderCalendar(){
     const dateStr=`${yr}-${String(mo+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const isToday=dateStr===todayStr;
     const isSel=dateStr===S.calSelected;
-    const evs=S.events.filter(ev=>(ev.start?.dateTime||ev.start?.date||'').startsWith(dateStr));
+    const evs=S.events.filter(ev=>{
+      const s=(ev.start?.dateTime||ev.start?.date||'').slice(0,10);
+      if(s===dateStr) return true;
+      // 複数日終日イベント: startDate < dateStr < endDate(exclusive)
+      if(ev.start?.date&&!ev.start?.dateTime&&ev.end?.date){
+        return ev.start.date<dateStr&&ev.end.date>dateStr;
+      }
+      return false;
+    });
     const dots=evs.slice(0,4).map(ev=>`<div class="cal-event-dot${ev._google?' google':''}"></div>`).join('');
     html+=`<div class="cal-cell${isToday?' today':''}${isSel?' selected':''}" onclick="selectDay('${dateStr}')">
       <div class="cal-num">${d}</div>
@@ -1623,7 +1747,14 @@ function renderDayEvents(dateStr){
     `${dt.getMonth()+1}月${dt.getDate()}日（${dow}）の予定`;
 
   const evs=S.events
-    .filter(ev=>(ev.start?.dateTime||ev.start?.date||'').startsWith(dateStr))
+    .filter(ev=>{
+      const s=(ev.start?.dateTime||ev.start?.date||'').slice(0,10);
+      if(s===dateStr) return true;
+      if(ev.start?.date&&!ev.start?.dateTime&&ev.end?.date){
+        return ev.start.date<dateStr&&ev.end.date>dateStr;
+      }
+      return false;
+    })
     .sort((a,b)=>new Date(a.start?.dateTime||a.start?.date||'')-new Date(b.start?.dateTime||b.start?.date||''));
 
   const list=document.getElementById('eventList');
@@ -1676,10 +1807,11 @@ function editFromDetail(){
   const ev=S.detailEvent; if(!ev) return;
   closeDetail();
   setMode('edit');
+  const isAllDay=ev.start?.date&&!ev.start?.dateTime;
   const dateStr=(ev.start?.dateTime||ev.start?.date||'').slice(0,10);
   const start=ev.start?.dateTime?ev.start.dateTime.slice(11,16):'09:00';
   const end=ev.end?.dateTime?ev.end.dateTime.slice(11,16):'10:00';
-  showSingleMatch(ev,{title:ev.summary,date:dateStr,startTime:start,endTime:end,location:ev.location||'',notes:ev.description||''});
+  showSingleMatch(ev,{title:ev.summary,date:dateStr,startTime:start,endTime:end,isAllDay:!!isAllDay,location:ev.location||'',notes:ev.description||''});
   document.getElementById('cardHeader').className='card-header edit';
   document.getElementById('cardHeaderText').textContent='変更する予定を確認してください';
   document.getElementById('execBtn').innerHTML='✎ 変更を保存';
