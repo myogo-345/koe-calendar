@@ -1525,9 +1525,7 @@ function formatEventFull(ev){
   const dt=new Date(dateStr+'T00:00');
   const dow=['日','月','火','水','木','金','土'][dt.getDay()];
   const dateLabel=`${dt.getMonth()+1}月${dt.getDate()}日（${dow}）`;
-  const time=ev.start?.dateTime
-    ? `${ev.start.dateTime.slice(11,16)} 〜 ${ev.end.dateTime.slice(11,16)}`
-    : '終日';
+  const time=formatEventTime(ev).replace(' – ',' 〜 ');
   const title=ev.summary||'無題';
   const loc=ev.location?`\n📍 ${ev.location}`:'';
   return {title, dateLabel, time, loc};
@@ -1768,7 +1766,7 @@ async function fetchEvents(){
   try{
     const now=new Date();
     const min=new Date(now.getFullYear(), now.getMonth()-1, 1).toISOString();
-    const max=new Date(now.getFullYear(), now.getMonth()+3, 0).toISOString();
+    const max=new Date(now.getFullYear(), now.getMonth()+6, 1).toISOString();
     let r=await gcalFetch(`/calendars/primary/events?timeMin=${min}&timeMax=${max}&singleEvents=true&orderBy=startTime&maxResults=250`);
     if(r.status===401){await ensureToken(true);r=await gcalFetch(`/calendars/primary/events?timeMin=${min}&timeMax=${max}&singleEvents=true&orderBy=startTime&maxResults=250`);}
     if(!r.ok) throw new Error('取得失敗');
@@ -1811,7 +1809,7 @@ function refreshUpcoming(){
     const day=dt.getDate();
     const dow=['日','月','火','水','木','金','土'][dt.getDay()];
     const isToday=dt.toDateString()===new Date().toDateString();
-    const time=ev.start?.dateTime?`${ev.start.dateTime.slice(11,16)} – ${ev.end.dateTime.slice(11,16)}`:'終日';
+    const time=formatEventTime(ev);
     const evTz=ev.start?.timeZone||'Asia/Tokyo';
     const dateStr=(ev.start?.dateTime||ev.start?.date||'').slice(0,10);
     const isForeign=evTz!=='Asia/Tokyo'||!!getActiveStay(dateStr);
@@ -1899,7 +1897,7 @@ function renderDayEvents(dateStr){
     return;
   }
   list.innerHTML=evs.map(ev=>{
-    const time=ev.start?.dateTime?`${ev.start.dateTime.slice(11,16)} – ${ev.end.dateTime.slice(11,16)}`:'終日';
+    const time=formatEventTime(ev);
     const sub=[ev.location,ev.description].filter(Boolean).join(' · ');
     return `<div class="event-item" onclick="openDetailFromEvent('${ev.id}')">
       <div class="event-time-block"><div class="event-time">${time.replace(' – ','\n– ')}</div></div>
@@ -1927,7 +1925,7 @@ function openDetailFromEvent(id){
   const dt=new Date(dateStr+'T00:00');
   const dow=['日','月','火','水','木','金','土'][dt.getDay()];
   document.getElementById('detailDate').textContent=`${dt.getFullYear()}年${dt.getMonth()+1}月${dt.getDate()}日（${dow}）`;
-  const time=ev.start?.dateTime?`${ev.start.dateTime.slice(11,16)} 〜 ${ev.end.dateTime.slice(11,16)}`:'終日';
+  const time=formatEventTime(ev).replace(' – ',' 〜 ');
   document.getElementById('detailTime').textContent=time;
   const locRow=document.getElementById('detailLocRow');
   locRow.style.display=ev.location?'flex':'none';
@@ -2032,10 +2030,31 @@ function showToast(msg,type=''){
   _toastTimer=setTimeout(()=>t.classList.remove('show'),2800);
 }
 
+// 終日イベントのexclusive end.date → 表示用inclusive日付
+function alldayEndInclusive(endDateExclusive){
+  const d=new Date(endDateExclusive+'T00:00');
+  d.setDate(d.getDate()-1);
+  return d;
+}
+
+// 終日・時間指定両対応の時刻表示文字列
+function formatEventTime(ev){
+  if(ev.start?.dateTime) return `${ev.start.dateTime.slice(11,16)} – ${ev.end.dateTime.slice(11,16)}`;
+  // 終日イベント
+  if(ev.start?.date&&ev.end?.date){
+    const endD=alldayEndInclusive(ev.end.date);
+    const endInclusive=endD.toISOString().slice(0,10);
+    if(endInclusive===ev.start.date) return '終日';
+    // 複数日: 日付範囲を表示
+    const sd=new Date(ev.start.date+'T00:00');
+    return `${sd.getMonth()+1}/${sd.getDate()} 〜 ${endD.getMonth()+1}/${endD.getDate()} 終日`;
+  }
+  return '終日';
+}
+
 function formatEventDate(ev){
   const dt=new Date(ev.start?.dateTime||ev.start?.date||'');
-  const time=ev.start?.dateTime?`${ev.start.dateTime.slice(11,16)} – ${ev.end.dateTime.slice(11,16)}`:'終日';
-  return `${dt.getMonth()+1}/${dt.getDate()} ${time}`;
+  return `${dt.getMonth()+1}/${dt.getDate()} ${formatEventTime(ev)}`;
 }
 function delay(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
