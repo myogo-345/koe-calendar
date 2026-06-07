@@ -599,6 +599,18 @@ footer{padding:20px 0;border-top:1px solid var(--border);font-size:10px;color:va
 <script>
 'use strict';
 // ══════════════════════════════════════════════════════
+// ENV INJECT (Vercelビルド時にsedで置換される)
+// ══════════════════════════════════════════════════════
+const ENV_GEMINI_KEY = '%%GEMINI_KEY%%';
+const ENV_CLIENT_ID  = '%%CLIENT_ID%%';
+if(!localStorage.getItem('koe_gemini_key') && ENV_GEMINI_KEY !== '%%GEMINI_KEY%%'){
+  localStorage.setItem('koe_gemini_key', ENV_GEMINI_KEY);
+}
+if(!localStorage.getItem('koe_client_id') && ENV_CLIENT_ID !== '%%CLIENT_ID%%'){
+  localStorage.setItem('koe_client_id', ENV_CLIENT_ID);
+}
+
+// ══════════════════════════════════════════════════════
 // CONSTANTS & STORAGE
 // ══════════════════════════════════════════════════════
 const TOKEN_LIFE = 55*60*1000;
