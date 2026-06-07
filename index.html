@@ -268,6 +268,14 @@ main{padding:28px 0 24px}
 .allday-tab{flex:1;padding:5px 8px;border:none;background:transparent;font-size:11px;font-family:'DM Mono',monospace;cursor:pointer;transition:all .2s;color:var(--ink-muted)}
 .allday-tab.active{background:var(--blue-light);color:var(--blue);font-weight:400}
 
+/* ── Location Banner ── */
+.location-banner{display:flex;align-items:center;gap:8px;font-size:11px;font-family:'DM Mono',monospace;background:var(--blue-light);border:1px solid rgba(42,100,150,.15);border-radius:10px;padding:8px 14px;color:var(--blue);margin-bottom:12px;flex-wrap:wrap}
+.location-banner strong{color:var(--blue);font-weight:500}
+.stay-section-label{font-size:10px;font-family:'DM Mono',monospace;letter-spacing:.1em;color:var(--ink-muted);margin:10px 0 6px;display:flex;align-items:center;gap:6px}
+.stay-section-label::after{content:'';flex:1;height:1px;background:var(--border)}
+.tz-stay-item.auto{border-color:rgba(42,100,150,.2);background:var(--blue-light)}
+.tz-stay-auto-label{font-size:10px;font-family:'DM Mono',monospace;color:var(--blue);margin-bottom:3px}
+
 /* ── GCal home badge ── */
 .gcal-home-wrap{margin-bottom:16px}
 .gcal-badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-family:'DM Mono',monospace;color:var(--green);background:var(--green-light);border:1px solid rgba(58,125,94,.2);border-radius:20px;padding:5px 12px;cursor:default}
@@ -326,6 +334,8 @@ footer{padding:20px 0;border-top:1px solid var(--border);font-size:10px;color:va
   <main>
     <!-- Googleカレンダー接続状態 -->
     <div class="gcal-home-wrap" id="gcalHomeWrap" style="display:none"></div>
+    <!-- 現在地バナー -->
+    <div id="locationBanner" style="display:none"></div>
 
     <!-- 直近の予定 -->
     <div class="upcoming-section">
@@ -778,6 +788,8 @@ function detectTzFromLocation(loc){
 
 function getStays(){return LS.getJ('stays',[]);}
 function saveStays(a){LS.setJ('stays',a);}
+function getAutoStays(){return LS.getJ('auto_stays',[]);}
+function saveAutoStays(a){LS.setJ('auto_stays',a);}
 
 function getActiveStay(dateStr){
   // 1. 手動登録した滞在先を確認
@@ -786,19 +798,115 @@ function getActiveStay(dateStr){
     const to  =s.endDate  ||'9999-12-31';
     if(dateStr>=from&&dateStr<=to) return s;
   }
-  // 2. GCalの終日イベント（location付き）を滞在フラグとして活用
-  for(const ev of S.events){
-    if(!ev.start?.date||ev.start?.dateTime) continue; // 終日イベントのみ
-    const startStr=ev.start.date;
-    const endStr  =ev.end?.date||startStr; // Google Calは終了日が翌日（exclusive）
-    if(dateStr>=startStr&&dateStr<endStr){
-      const loc=ev.location||'';
-      if(!loc) continue;
-      const tz=detectTzFromLocation(loc);
-      if(tz&&tz!=='Asia/Tokyo') return{tz,startDate:startStr,endDate:endStr,_fromEvent:true,eventTitle:ev.summary};
-    }
+  // 2. 自動検知済み滞在先（endDateはexclusive）
+  for(const s of getAutoStays()){
+    if(dateStr>=s.startDate&&dateStr<s.endDate) return s;
   }
   return null;
+}
+
+// Gemini APIでタイムゾーン推定（detectTzFromLocationが失敗した場合のフォールバック）
+async function detectTzWithGemini(ev){
+  const key=getGeminiKey();
+  if(!key) return null;
+  const prompt=`以下のカレンダーイベントから滞在先のタイムゾーンをIANA形式で特定してください。JSONのみ返してください。
+タイトル: ${ev.summary||''}
+場所: ${ev.location||''}
+{"timezone":"Pacific/Honolulu","cityName":"ホノルル"}
+注意: 日本国内または判断できない場合は{"timezone":"","cityName":""}を返してください。`;
+  try{
+    const res=await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+      {method:'POST',headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json'}})}
+    );
+    const data=await res.json();
+    const raw=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
+    const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim());
+    if(parsed.timezone&&parsed.timezone!=='Asia/Tokyo'&&parsed.timezone!=='') return parsed;
+  }catch(e){console.warn('[koe] Gemini TZ detect:',e);}
+  return null;
+}
+
+// GCalイベントから海外滞在を自動検知してauto_staysに保存
+async function autoDetectStays(){
+  const today=new Date().toISOString().slice(0,10);
+  // 期限切れの自動検知を削除
+  const valid=getAutoStays().filter(s=>s.endDate>today);
+  if(valid.length!==getAutoStays().length) saveAutoStays(valid);
+
+  if(!S.gcal.token) return;
+  const TRAVEL_RE=/出張|旅行|trip|travel|visit|stay|滞在/i;
+  // 対象: 終日・2日以上・旅行キーワードまたはlocation付き
+  const candidates=S.events.filter(ev=>{
+    if(!ev.start?.date||ev.start?.dateTime) return false;
+    if(!ev.end?.date||ev.end.date<=today) return false;
+    const days=(new Date(ev.end.date)-new Date(ev.start.date))/86400000;
+    if(days<2) return false;
+    const combined=(ev.summary||'')+' '+(ev.location||'');
+    return TRAVEL_RE.test(combined)||(ev.location&&ev.location.trim().length>0);
+  });
+
+  const newAutoStays=[];
+  const existingIds=new Set(getAutoStays().map(s=>s.eventId));
+
+  for(const ev of candidates){
+    // 既に検知済みなら再利用
+    const existing=getAutoStays().find(s=>s.eventId===ev.id&&s.endDate>today);
+    if(existing){newAutoStays.push(existing);continue;}
+
+    // タイムゾーン推定: まずローカル検索、なければGemini
+    const locText=(ev.location||'')+(ev.summary||'');
+    let tz=detectTzFromLocation(locText);
+    let cityName='';
+    if(!tz){
+      const g=await detectTzWithGemini(ev);
+      if(g){tz=g.timezone;cityName=g.cityName;}
+    } else {
+      cityName=getTzCity(tz);
+    }
+    if(!tz||tz==='Asia/Tokyo') continue;
+
+    newAutoStays.push({
+      tz,
+      cityName:cityName||getTzCity(tz),
+      startDate:ev.start.date,
+      endDate:ev.end.date,      // exclusive（Google Calの終了日のまま）
+      eventId:ev.id,
+      eventTitle:ev.summary||'',
+      _auto:true,
+    });
+  }
+  saveAutoStays(newAutoStays);
+  renderStayList();
+  refreshLocationBanner();
+}
+
+function removeAutoStay(i){
+  const a=getAutoStays();a.splice(i,1);saveAutoStays(a);
+  renderStayList();refreshLocationBanner();
+}
+
+function refreshLocationBanner(){
+  const banner=document.getElementById('locationBanner');
+  if(!banner) return;
+  const today=new Date().toISOString().slice(0,10);
+  const stay=getActiveStay(today);
+  if(!stay||stay.tz==='Asia/Tokyo'){banner.style.display='none';return;}
+
+  const city=stay.cityName||getTzCity(stay.tz);
+  const off=getTzOffset(stay.tz);
+  // 時差計算
+  const nowMs=Date.now();
+  const fmt=(tz)=>new Intl.DateTimeFormat('sv-SE',{timeZone:tz,hour:'2-digit',minute:'2-digit'}).format(nowMs);
+  const [jH,jM]=fmt('Asia/Tokyo').split(':').map(Number);
+  const [lH,lM]=fmt(stay.tz).split(':').map(Number);
+  let diffH=Math.round(((lH*60+lM)-(jH*60+jM))/60);
+  if(diffH>12)diffH-=24;if(diffH<-12)diffH+=24;
+  const diffStr=diffH===0?'時差なし':`日本との時差: ${diffH>0?'+':''}${diffH}時間`;
+
+  banner.style.display='block';
+  banner.innerHTML=`<div class="location-banner">🌏 <strong>現在地: ${city}</strong> (${off}) &nbsp;|&nbsp; ${diffStr}</div>`;
 }
 
 function setAlldayMode(on){
@@ -869,23 +977,48 @@ function removeStay(i){
 
 function renderStayList(){
   const list=document.getElementById('stayList');if(!list)return;
-  const stays=getStays();
-  if(!stays.length){
-    list.innerHTML='<div style="font-size:11px;color:var(--ink-muted);font-family:\'DM Mono\',monospace;font-style:italic">滞在先が登録されていません</div>';
-    return;
+  const manual=getStays();
+  const auto=getAutoStays();
+  let html='';
+
+  if(auto.length){
+    html+=`<div class="stay-section-label">🔄 自動検知（カレンダーから）</div>`;
+    html+=auto.map((s,i)=>{
+      // endDateはexclusive → 表示は1日戻す
+      const endDisp=s.endDate?(()=>{const d=new Date(s.endDate+'T00:00');d.setDate(d.getDate()-1);return d.toISOString().slice(0,10);})():s.startDate;
+      const period=`${s.startDate} 〜 ${endDisp}`;
+      const city=s.cityName||getTzCity(s.tz);
+      return `<div class="tz-stay-item auto">
+        <div class="tz-stay-info">
+          <div class="tz-stay-auto-label">📅 ${s.eventTitle}</div>
+          <div class="tz-stay-name">🌏 ${city} <span style="color:var(--blue);font-size:10px">${getTzOffset(s.tz)}</span></div>
+          <div class="tz-stay-period">${period}</div>
+        </div>
+        <button class="btn-kc" onclick="removeAutoStay(${i})">×</button>
+      </div>`;
+    }).join('');
   }
-  list.innerHTML=stays.map((s,i)=>{
-    const period=s.startDate&&s.endDate?`${s.startDate} 〜 ${s.endDate}`
-      :s.startDate?`${s.startDate} 〜`
-      :s.endDate?`〜 ${s.endDate}`:'期間指定なし（常時）';
-    return `<div class="tz-stay-item">
-      <div class="tz-stay-info">
-        <div class="tz-stay-name">${s.tz} <span style="color:var(--ink-muted);font-size:10px">${getTzOffset(s.tz)}</span></div>
-        <div class="tz-stay-period">${period}</div>
-      </div>
-      <button class="btn-kc" onclick="removeStay(${i})">削除</button>
-    </div>`;
-  }).join('');
+
+  if(manual.length){
+    if(auto.length) html+=`<div class="stay-section-label">＋ 手動で追加した滞在先</div>`;
+    html+=manual.map((s,i)=>{
+      const period=s.startDate&&s.endDate?`${s.startDate} 〜 ${s.endDate}`
+        :s.startDate?`${s.startDate} 〜`
+        :s.endDate?`〜 ${s.endDate}`:'期間指定なし（常時）';
+      return `<div class="tz-stay-item">
+        <div class="tz-stay-info">
+          <div class="tz-stay-name">${s.tz} <span style="color:var(--ink-muted);font-size:10px">${getTzOffset(s.tz)}</span></div>
+          <div class="tz-stay-period">${period}</div>
+        </div>
+        <button class="btn-kc" onclick="removeStay(${i})">削除</button>
+      </div>`;
+    }).join('');
+  }
+
+  if(!auto.length&&!manual.length){
+    html='<div style="font-size:11px;color:var(--ink-muted);font-family:\'DM Mono\',monospace;font-style:italic">滞在先が登録されていません<br>Googleカレンダーに出張・旅行の終日イベントを入れると自動検知されます</div>';
+  }
+  list.innerHTML=html;
 }
 
 // 時差計算: dateStr+timeStr をfromTz解釈してUTCミリ秒を返す
@@ -1110,6 +1243,7 @@ function updateGcalUI(connected){
   else{btn.classList.remove('connected');lbl.textContent='Googleアカウントでサインイン';bar.style.display='none';}
   refreshDots();
   refreshHomeGcalBtn();
+  refreshLocationBanner();
 }
 
 function refreshHomeGcalBtn(){
@@ -1642,6 +1776,8 @@ async function fetchEvents(){
     S.events=(data.items||[]).map(ev=>({...ev,_google:true}));
     refreshUpcoming();
     renderCalendar();
+    // 海外滞在を自動検知（バックグラウンドで実行、ローディングは表示しない）
+    autoDetectStays();
   }catch(e){showToast('予定取得エラー: '+e.message,'error');}
   finally{hideLoading();}
 }
@@ -1910,7 +2046,14 @@ function delay(ms){ return new Promise(r=>setTimeout(r,ms)); }
 initSpeech();
 refreshDots();
 refreshHomeGcalBtn();
+// 起動時: 期限切れ自動ステイを清掃
+(()=>{
+  const today=new Date().toISOString().slice(0,10);
+  const valid=getAutoStays().filter(s=>s.endDate>today);
+  if(valid.length!==getAutoStays().length) saveAutoStays(valid);
+})();
 renderStayList();
+refreshLocationBanner();
 document.getElementById('fDate').addEventListener('change',()=>checkTzAlert(
   document.getElementById('fDate').value,
   document.getElementById('fStart').value,
