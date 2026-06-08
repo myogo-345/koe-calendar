@@ -813,7 +813,7 @@ function detectTzFromLocation(loc){
   }
   for(const tz of getAllTz()){
     const city=tz.split('/').pop().replace(/_/g,' ').toLowerCase();
-    if(city.length>=3&&l.includes(city)&&tz!=='Asia/Tokyo') return tz;
+    if(city.length>=3&&l.includes(city)) return tz;
   }
   return null;
 }
@@ -851,9 +851,9 @@ async function detectTzWithGemini(ev){
   const locKey=((ev.location||'')+(ev.summary||'')).trim().toLowerCase().slice(0,80);
   // キャッシュヒット
   const cached=getTzCached(locKey);
-  if(cached){
+  if(cached!==null&&cached!==undefined&&cached!=='__miss__'){
     console.log('[koe] TZ cache hit:', locKey, '->', cached);
-    if(!cached||cached==='Asia/Tokyo') return null;
+    if(!cached) return null; // 空文字 = 判定不能
     return {timezone:cached,cityName:getTzCity(cached)};
   }
   const prompt=`以下のカレンダーイベントから滞在先のタイムゾーンをIANA形式で特定してください。JSONのみ返してください。
@@ -878,8 +878,7 @@ async function detectTzWithGemini(ev){
     const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim());
     if(parsed.timezone&&parsed.timezone!==''){
       setTzCached(locKey, parsed.timezone); // キャッシュに保存
-      if(parsed.timezone==='Asia/Tokyo') return null;
-      return parsed;
+      return parsed; // Asia/Tokyo も返す（呼び出し元が判断）
     }
     setTzCached(locKey,''); // 判定不能もキャッシュ（再試行しない）
   }catch(e){console.warn('[koe] Gemini TZ detect:',e);}
@@ -896,7 +895,7 @@ async function autoDetectStays(){
   if(!S.gcal.token){console.log('[koe] autoDetectStays: GCal token なし、スキップ');return;}
   console.log('[koe] autoDetectStays: 開始, イベント数=', S.events.length);
 
-  const TRAVEL_RE=/出張|旅行|trip|travel|visit|stay|滞在/i;
+  const TRAVEL_RE=/出張|旅行|trip|travel|visit|stay|滞在|韓国|ソウル|korea|中国|beijing|上海|shanghai|台湾|taipei|香港|hongkong/i;
   // 対象: 終日・2日以上・旅行キーワードまたはlocation付き
   const candidates=S.events.filter(ev=>{
     if(!ev.start?.date||ev.start?.dateTime) return false;
@@ -934,9 +933,20 @@ async function autoDetectStays(){
     } else {
       cityName=getTzCity(tz);
     }
-    if(!tz||tz==='Asia/Tokyo'){
-      console.log('[koe] autoDetectStays: TZなしまたは東京、スキップ:', ev.summary);
+    if(!tz){
+      console.log('[koe] autoDetectStays: TZ不明、スキップ:', ev.summary);
       continue;
+    }
+    // Asia/Tokyo も登録する（韓国・中国など時差ゼロ国の滞在も記録するため）
+    // ただし「日本」単体キーワードのみのイベントは除外
+    if(tz==='Asia/Tokyo'){
+      const locLower=(ev.location||'').toLowerCase();
+      const sumLower=(ev.summary||'').toLowerCase();
+      const isJapanOnly=/^(日本|japan|tokyo|東京|osaka|大阪|kyoto|京都|yokohama|横浜)[\s　]*$/i.test((ev.location||ev.summary||'').trim());
+      if(isJapanOnly){
+        console.log('[koe] autoDetectStays: 日本国内イベント、スキップ:', ev.summary);
+        continue;
+      }
     }
 
     console.log('[koe] autoDetectStays: 検知 →', ev.summary, tz, cityName);
@@ -966,7 +976,7 @@ function refreshLocationBanner(){
   if(!banner) return;
   const today=new Date().toISOString().slice(0,10);
   const stay=getActiveStay(today);
-  if(!stay||stay.tz==='Asia/Tokyo'){banner.style.display='none';return;}
+  if(!stay){banner.style.display='none';return;}
 
   const city=stay.cityName||getTzCity(stay.tz);
   const off=getTzOffset(stay.tz);
@@ -1123,9 +1133,22 @@ function checkTzAlert(date,startTime,endTime){
     S._activeTzStay=null;return;
   }
   const stay=getActiveStay(date);
-  if(!stay||stay.tz==='Asia/Tokyo'){
+  if(!stay){
     alertEl.style.display='none';execBtn.style.display='';
     S._activeTzStay=null;return;
+  }
+  // 時差チェック: 日本との時差が±1時間未満ならアラート不要
+  {
+    const nowMs=Date.now();
+    const fmt=(tz)=>new Intl.DateTimeFormat('sv-SE',{timeZone:tz,hour:'2-digit',minute:'2-digit'}).format(nowMs);
+    const [jH,jM]=fmt('Asia/Tokyo').split(':').map(Number);
+    const [lH,lM]=fmt(stay.tz).split(':').map(Number);
+    let diffMin=(lH*60+lM)-(jH*60+jM);
+    if(diffMin>720)diffMin-=1440;if(diffMin<-720)diffMin+=1440;
+    if(Math.abs(diffMin)<60){
+      alertEl.style.display='none';execBtn.style.display='';
+      S._activeTzStay=null;return;
+    }
   }
   S._activeTzStay=stay;
   const city=stay.cityName||getTzCity(stay.tz);
