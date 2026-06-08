@@ -727,6 +727,7 @@ const S = {
 // TIMEZONE / STAY PERIODS
 // ══════════════════════════════════════════════════════
 const TZ_ALIASES={
+  // 英語
   'hawaii':'Pacific/Honolulu','honolulu':'Pacific/Honolulu',
   'la':'America/Los_Angeles','los angeles':'America/Los_Angeles','losangeles':'America/Los_Angeles',
   'new york':'America/New_York','newyork':'America/New_York','nyc':'America/New_York',
@@ -746,6 +747,29 @@ const TZ_ALIASES={
   'moscow':'Europe/Moscow','istanbul':'Europe/Istanbul',
   'guam':'Pacific/Guam','saipan':'Pacific/Saipan',
   'sao paulo':'America/Sao_Paulo','mexico':'America/Mexico_City',
+  // 日本語
+  'ハワイ':'Pacific/Honolulu','ホノルル':'Pacific/Honolulu',
+  'ニューヨーク':'America/New_York','ニューヨーク州':'America/New_York',
+  'ロサンゼルス':'America/Los_Angeles','ロスアンゼルス':'America/Los_Angeles',
+  'シカゴ':'America/Chicago','トロント':'America/Toronto','バンクーバー':'America/Vancouver',
+  'シアトル':'America/Los_Angeles','サンフランシスコ':'America/Los_Angeles',
+  'ロンドン':'Europe/London','パリ':'Europe/Paris','ベルリン':'Europe/Berlin',
+  'アムステルダム':'Europe/Amsterdam','ローマ':'Europe/Rome','マドリード':'Europe/Madrid',
+  'チューリッヒ':'Europe/Zurich','ウィーン':'Europe/Vienna','ストックホルム':'Europe/Stockholm',
+  'ドバイ':'Asia/Dubai','シンガポール':'Asia/Singapore','バンコク':'Asia/Bangkok',
+  '香港':'Asia/Hong_Kong','ホンコン':'Asia/Hong_Kong',
+  'シドニー':'Australia/Sydney','メルボルン':'Australia/Melbourne','ブリスベン':'Australia/Brisbane',
+  'オークランド':'Pacific/Auckland','ソウル':'Asia/Seoul','首爾':'Asia/Seoul',
+  '北京':'Asia/Shanghai','上海':'Asia/Shanghai','台北':'Asia/Taipei',
+  'ジャカルタ':'Asia/Jakarta','バリ':'Asia/Makassar','マニラ':'Asia/Manila',
+  'デリー':'Asia/Kolkata','ムンバイ':'Asia/Kolkata','インド':'Asia/Kolkata',
+  'カイロ':'Africa/Cairo','ナイロビ':'Africa/Nairobi',
+  'モスクワ':'Europe/Moscow','イスタンブール':'Europe/Istanbul',
+  'グアム':'Pacific/Guam','サイパン':'Pacific/Saipan',
+  'サンパウロ':'America/Sao_Paulo','メキシコ':'America/Mexico_City',
+  'アメリカ':'America/New_York','米国':'America/New_York',
+  'ヨーロッパ':'Europe/Paris','欧州':'Europe/Paris','ヨーロッパ出張':'Europe/Paris',
+  'オーストラリア':'Australia/Sydney',
 };
 
 function getAllTz(){
@@ -777,9 +801,15 @@ function getTzOffset(tz){
 function getTzCity(tz){return tz.split('/').pop().replace(/_/g,' ');}
 
 function detectTzFromLocation(loc){
-  const l=loc.toLowerCase();
+  const l=loc.toLowerCase();   // 英語用
+  const orig=loc;              // 日本語用（大文字小文字変換しない）
   for(const [alias,tz] of Object.entries(TZ_ALIASES)){
-    if(l.includes(alias)) return tz;
+    // 英語エイリアス（小文字で比較）/ 日本語エイリアス（そのまま比較）
+    if(/[^\x00-\x7F]/.test(alias)){
+      if(orig.includes(alias)) return tz;
+    } else {
+      if(l.includes(alias)) return tz;
+    }
   }
   for(const tz of getAllTz()){
     const city=tz.split('/').pop().replace(/_/g,' ').toLowerCase();
@@ -822,7 +852,13 @@ async function detectTzWithGemini(ev){
       {method:'POST',headers:{'Content-Type':'application/json'},
        body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json'}})}
     );
+    if(!res.ok){
+      const errText=await res.text();
+      console.error('[koe] Gemini TZ detect HTTP error:', res.status, errText.slice(0,200));
+      return null;
+    }
     const data=await res.json();
+    if(data.error){console.error('[koe] Gemini TZ detect API error:', data.error.message);return null;}
     const raw=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
     const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim());
     if(parsed.timezone&&parsed.timezone!=='Asia/Tokyo'&&parsed.timezone!=='') return parsed;
@@ -837,7 +873,9 @@ async function autoDetectStays(){
   const valid=getAutoStays().filter(s=>s.endDate>today);
   if(valid.length!==getAutoStays().length) saveAutoStays(valid);
 
-  if(!S.gcal.token) return;
+  if(!S.gcal.token){console.log('[koe] autoDetectStays: GCal token なし、スキップ');return;}
+  console.log('[koe] autoDetectStays: 開始, イベント数=', S.events.length);
+
   const TRAVEL_RE=/出張|旅行|trip|travel|visit|stay|滞在/i;
   // 対象: 終日・2日以上・旅行キーワードまたはlocation付き
   const candidates=S.events.filter(ev=>{
@@ -848,27 +886,40 @@ async function autoDetectStays(){
     const combined=(ev.summary||'')+' '+(ev.location||'');
     return TRAVEL_RE.test(combined)||(ev.location&&ev.location.trim().length>0);
   });
+  console.log('[koe] autoDetectStays: 候補イベント数=', candidates.length, candidates.map(e=>e.summary));
 
   const newAutoStays=[];
-  const existingIds=new Set(getAutoStays().map(s=>s.eventId));
 
   for(const ev of candidates){
     // 既に検知済みなら再利用
     const existing=getAutoStays().find(s=>s.eventId===ev.id&&s.endDate>today);
-    if(existing){newAutoStays.push(existing);continue;}
+    if(existing){
+      console.log('[koe] autoDetectStays: 再利用', ev.summary, existing.tz);
+      newAutoStays.push(existing);continue;
+    }
 
     // タイムゾーン推定: まずローカル検索、なければGemini
-    const locText=(ev.location||'')+(ev.summary||'');
+    const locText=(ev.location||'')+' '+(ev.summary||'');
     let tz=detectTzFromLocation(locText);
     let cityName='';
+    console.log('[koe] autoDetectStays: イベント=「', ev.summary, '」場所=「', ev.location||'', '」ローカル検索結果=', tz);
     if(!tz){
+      if(!getGeminiKey()){
+        console.log('[koe] autoDetectStays: Gemini APIキーなし、スキップ');
+        continue;
+      }
       const g=await detectTzWithGemini(ev);
+      console.log('[koe] autoDetectStays: Gemini結果=', g);
       if(g){tz=g.timezone;cityName=g.cityName;}
     } else {
       cityName=getTzCity(tz);
     }
-    if(!tz||tz==='Asia/Tokyo') continue;
+    if(!tz||tz==='Asia/Tokyo'){
+      console.log('[koe] autoDetectStays: TZなしまたは東京、スキップ:', ev.summary);
+      continue;
+    }
 
+    console.log('[koe] autoDetectStays: 検知 →', ev.summary, tz, cityName);
     newAutoStays.push({
       tz,
       cityName:cityName||getTzCity(tz),
@@ -879,6 +930,7 @@ async function autoDetectStays(){
       _auto:true,
     });
   }
+  console.log('[koe] autoDetectStays: 保存する滞在先=', newAutoStays.length, newAutoStays);
   saveAutoStays(newAutoStays);
   renderStayList();
   refreshLocationBanner();
