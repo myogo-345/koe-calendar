@@ -886,8 +886,17 @@ async function detectTzWithGemini(ev){
   return null;
 }
 
+// 日本国内判定用（Asia/Tokyo 解決時にのみ使用）
+const JAPAN_RE=/^(日本|japan|tokyo|東京|osaka|大阪|kyoto|京都|yokohama|横浜|nagoya|名古屋|fukuoka|福岡|sapporo|札幌|sendai|仙台|hiroshima|広島|kobe|神戸|kawasaki|川崎|saitama|さいたま|chiba|千葉|hokkaido|北海道|okinawa|沖縄|kyushu|九州|shikoku|四国)[\s　]*$/i;
+
+// 並列実行防止フラグ（nav遷移とexecAction競合によるauto_stays破損を防ぐ）
+let _autoDetectRunning=false;
+
 // GCalイベントから海外滞在を自動検知してauto_staysに保存
 async function autoDetectStays(){
+  if(_autoDetectRunning){console.log('[koe] autoDetectStays: 実行中のためスキップ');return;}
+  _autoDetectRunning=true;
+  try{
   const today=new Date().toISOString().slice(0,10);
   // 期限切れの自動検知を削除
   const valid=getAutoStays().filter(s=>s.endDate>today);
@@ -951,11 +960,9 @@ async function autoDetectStays(){
     // Asia/Tokyo も登録する（韓国・中国など時差ゼロ国の滞在も記録するため）
     // ただし「日本」単体キーワードのみのイベントは除外
     if(tz==='Asia/Tokyo'){
-      const JAPAN_RE=/^(日本|japan|tokyo|東京|osaka|大阪|kyoto|京都|yokohama|横浜|nagoya|名古屋|fukuoka|福岡|sapporo|札幌|sendai|仙台|hiroshima|広島|kobe|神戸|kawasaki|川崎|saitama|さいたま|chiba|千葉|hokkaido|北海道|okinawa|沖縄|kyushu|九州|shikoku|四国)[\s　]*$/i;
-      // location と summary の両方をチェック（片方だけで判断しない）
       const locStr=(ev.location||'').trim();
       const sumStr=(ev.summary||'').trim();
-      const isJapanOnly=JAPAN_RE.test(locStr)||JAPAN_RE.test(sumStr)||(!locStr&&!sumStr);
+      const isJapanOnly=JAPAN_RE.test(locStr)||JAPAN_RE.test(sumStr);
       if(isJapanOnly){
         console.log('[koe] autoDetectStays: 日本国内イベント、スキップ:', ev.summary);
         continue;
@@ -977,6 +984,7 @@ async function autoDetectStays(){
   saveAutoStays(newAutoStays);
   renderStayList();
   refreshLocationBanner();
+  }finally{_autoDetectRunning=false;}
 }
 
 function removeAutoStay(i){
@@ -1601,8 +1609,8 @@ async function runParse(){
       console.log('Gemini response:', JSON.stringify(data).slice(0,300));
       if(data.error) throw new Error(data.error.message);
       const raw=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
+      const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim()); // SyntaxError here = malformed response, not API failure
       lastErr=null;
-      const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim());
       // APIの成否確定後にUI反映（applyParsedの例外をAPI失敗と混同しないよう分離）
       try{ applyParsed(parsed); }catch(applyErr){
         console.error('applyParsed error:', applyErr);
@@ -1862,11 +1870,12 @@ async function execAction(){
       const body=isAllDay
         ?{summary:title,location:loc,description:notes,start:{date},end:{date:calcEndDate()}}
         :{summary:title,location:loc,description:notes,start:{dateTime:`${date}T${start}:00`,timeZone:_tz},end:{dateTime:`${date}T${end}:00`,timeZone:_tz}};
-      const r=await gcalPost('/calendars/primary/events',body);
-      if(r.status===401){const ref=await ensureToken(true);if(!ref){btn.disabled=false;return;}await gcalPost('/calendars/primary/events',body);}
+      let r=await gcalPost('/calendars/primary/events',body);
+      if(r.status===401){const ref=await ensureToken(true);if(!ref){btn.disabled=false;return;}r=await gcalPost('/calendars/primary/events',body);}
+      if(!r.ok) throw new Error((await r.json()).error?.message||'APIエラー');
       addHistory({label:'追加',title,date,start:isAllDay?'終日':start,end,status:'success'});
       showToast('カレンダーに追加しました ✓','success');
-      clearCard(); await fetchEvents(); await autoDetectStays();
+      clearCard(); await fetchEvents(); autoDetectStays();
     }catch(e){addHistory({label:'追加',title,date,start,end,status:'error'});showToast('追加に失敗: '+e.message,'error');}
     btn.innerHTML=SAVE_ICON; btn.disabled=false;
 
@@ -1921,7 +1930,7 @@ async function execAction(){
       if(!r.ok) throw new Error((await r.json()).error?.message||'APIエラー');
       addHistory({label:'変更',title,date,start:isAllDay?'終日':start,end,status:'success'});
       showToast('予定を変更しました ✓','success');
-      clearCard(); await fetchEvents(); await autoDetectStays();
+      clearCard(); await fetchEvents(); autoDetectStays();
     }catch(e){showToast('変更に失敗: '+e.message,'error');}
     btn.innerHTML='✎ 変更を保存'; btn.disabled=false;
 
@@ -1948,7 +1957,7 @@ async function execAction(){
       if(r.status!==204&&!r.ok) throw new Error('削除APIエラー');
       addHistory({label:'削除',title,date:'',start:'',end:'',status:'success'});
       showToast('予定を削除しました ✓','success');
-      clearCard(); await fetchEvents(); await autoDetectStays();
+      clearCard(); await fetchEvents(); autoDetectStays();
     }catch(e){showToast('削除に失敗: '+e.message,'error');}
     btn.innerHTML='✕ 削除する'; btn.disabled=false;
   }
