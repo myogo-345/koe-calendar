@@ -826,7 +826,8 @@ function saveAutoStays(a){LS.setJ('auto_stays',a);}
 // タイムゾーンキャッシュ（場所名→TZ, Gemini API節約）
 function getTzCache(){return LS.getJ('tz_cache',{});}
 function saveTzCache(c){LS.setJ('tz_cache',c);}
-function getTzCached(locKey){return getTzCache()[locKey]||null;}
+// undefinedを返す = キャッシュなし、空文字を返す = 判定不能（||nullを使わない）
+function getTzCached(locKey){const c=getTzCache();return Object.prototype.hasOwnProperty.call(c,locKey)?c[locKey]:undefined;}
 function setTzCached(locKey,tz){const c=getTzCache();c[locKey]=tz;saveTzCache(c);}
 
 function getActiveStay(dateStr){
@@ -851,8 +852,8 @@ async function detectTzWithGemini(ev){
   const locKey=((ev.location||'')+(ev.summary||'')).trim().toLowerCase().slice(0,80);
   // キャッシュヒット
   const cached=getTzCached(locKey);
-  if(cached!==null&&cached!==undefined&&cached!=='__miss__'){
-    console.log('[koe] TZ cache hit:', locKey, '->', cached);
+  if(cached!==undefined){  // undefinedのみキャッシュなし扱い（空文字も有効なキャッシュ）
+    console.log('[koe] TZ cache hit:', locKey, '->', cached||'(判定不能)');
     if(!cached) return null; // 空文字 = 判定不能
     return {timezone:cached,cityName:getTzCity(cached)};
   }
@@ -927,7 +928,17 @@ async function autoDetectStays(){
         console.log('[koe] autoDetectStays: Gemini APIキーなし、スキップ');
         continue;
       }
+      // GeminiによるTZ変換: 1日1回までに制限（キャッシュ済みは毎回OK）
+      const geminiDateKey='gemini_tz_date';
+      const lastGeminiDate=LS.get(geminiDateKey)||'';
+      const locKey=((ev.location||'')+(ev.summary||'')).trim().toLowerCase().slice(0,80);
+      const isCached=getTzCached(locKey)!==undefined;
+      if(!isCached&&lastGeminiDate===today){
+        console.log('[koe] autoDetectStays: Gemini API本日呼び出し済み、スキップ:', ev.summary);
+        continue;
+      }
       const g=await detectTzWithGemini(ev);
+      if(!isCached) LS.set(geminiDateKey,today); // 実際にAPI呼び出した日を記録
       console.log('[koe] autoDetectStays: Gemini結果=', g);
       if(g){tz=g.timezone;cityName=g.cityName;}
     } else {
@@ -1509,29 +1520,34 @@ async function runParse(){
 テキスト:"${text}"
 {"intent":"add","title":"タイトル","date":"YYYY-MM-DD","endDate":"YYYY-MM-DD(複数日終日の最終日、それ以外は空)","isAllDay":false,"startTime":"HH:MM","endTime":"HH:MM","location":"場所(不明なら空)","notes":"メモ(不明なら空)"}
 
+【日付のルール（最重要）】
+・テキストに「6月17日」「17日」など具体的な日付が含まれる場合は必ずその日付を使う
+・今日(${today})・明日(${tomorrow})などの相対表現は上記の日付に変換する
+・具体的な日付の言及があるのに今日の日付を使うのは絶対に禁止
+
 【タイトルのルール】
-・ユーザーが話した言葉をそのまま使う。絶対に言い換えや意訳をしない
-・除外するのは「日付・時間情報だけ」。場所・人名・内容はそのまま残す
-・✗「6月10日から30日までハワイ」→ ✓「ハワイ」（日付だけ除去、地名は残す）
-・✗「田中さんとミーティング」→ ✓「田中さんとミーティング」（「打ち合わせ」に言い換えない）
-・✗「歯医者」→ ✓「歯医者」（「通院」に言い換えない）
-・✗「6月の6日に夜9時でミーティング」→ ✓「ミーティング」（日時だけ除去）
+・タイトルには予定の「種類・内容・人名」のみ。日付・時刻は絶対に含めない
+・ユーザーの言葉をそのまま使う。言い換え・意訳は禁止
+・「6月17日朝8時から打ち合わせ」→ title:"打ち合わせ"（日付・時刻を除去）
+・「6月10日から30日までハワイ」→ title:"ハワイ"（日付だけ除去、地名は残す）
+・「田中さんとミーティング」→ title:"田中さんとミーティング"（そのまま）
+・「歯医者」→ title:"歯医者"（"通院"などに言い換えない）
 ・場所はlocationフィールドにも設定する（タイトルにも残してよい）
 
-【時間のルール（24時間形式で返すこと）】
-・朝・午前 → そのまま（朝9時→09:00）
-・昼 → 12:00台（昼12時→12:00）
-・午後・昼過ぎ → +12時間（午後3時→15:00）
-・夕方 → 17:00〜19:00台（夕方6時→18:00）
-・夜・夜間 → 20:00〜23:00台（夜9時→21:00）
-・深夜 → 00:00〜04:00台（深夜1時→01:00）
+【時間のルール（24時間形式で返すこと・必須）】
+・朝・午前: 朝8時→08:00、朝9時→09:00、朝10時→10:00
+・昼: 昼12時→12:00、昼1時→13:00
+・午後・昼過ぎ: 午後1時→13:00、午後3時→15:00、午後6時→18:00
+・夕方: 夕方5時→17:00、夕方6時→18:00、夕方7時→19:00
+・夜・夜間（重要）: 夜7時→19:00、夜8時→20:00、夜9時→21:00、夜10時→22:00、夜11時→23:00
+・深夜: 深夜0時→00:00、深夜1時→01:00、深夜2時→02:00
+・「〇時」単独（文脈なし）→ 9時以前は午前、10〜11時は午前、12時は正午、13時以降はそのまま
 
 【その他のルール】
 ・開始時間が含まれる場合は必ずisAllDay:false、startTimeにHH:MM形式で設定
 ・終了時間が不明な場合はendTimeを空文字""にする（アプリが1時間後を自動設定）
 ・isAllDay:trueは日付のみで時間が一切ない場合のみ（例: 出張・旅行の複数日）
-・「〇日から△日まで」など複数日終日はisAllDay:true＋endDateを設定
-・相対表現（今日/明日/来週など）を正確に解釈`;
+・「〇日から△日まで」など複数日終日はisAllDay:true＋endDateを設定`;
     } else {
       // edit or delete: タイトルキーワードと日時変更を抽出
       prompt=`今日は${today}(${dow}曜)、明日は${tomorrow}。
@@ -1543,22 +1559,46 @@ async function runParse(){
 
     console.log('gemini key exists:', !!key);
     console.log('gemini key length:', key?.length);
-    const res=await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
-      {method:'POST',headers:{'Content-Type':'application/json'},
-       body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json'}})}
-    );
-    if(!res.ok){
-      const errText=await res.text();
-      console.error('Gemini HTTP error:', res.status, errText);
-      throw new Error(`HTTP ${res.status}: ${errText.slice(0,200)}`);
+    const RETRY_DELAYS=[0,1000,2000]; // 最大3回: 即時・1秒後・2秒後
+    let lastErr=null;
+    for(let attempt=0;attempt<RETRY_DELAYS.length;attempt++){
+      if(attempt>0){
+        btn.innerHTML=`<div class="sp-dark"></div> 再試行中（${attempt}/${RETRY_DELAYS.length-1}）…`;
+        await new Promise(r=>setTimeout(r,RETRY_DELAYS[attempt]));
+      }
+      let res;
+      try{
+        res=await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+          {method:'POST',headers:{'Content-Type':'application/json'},
+           body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:'application/json'}})}
+        );
+      }catch(fetchErr){
+        lastErr=fetchErr;
+        console.warn(`Gemini fetch失敗 (${attempt+1}回目):`, fetchErr);
+        continue;
+      }
+      if(res.status===503||res.status===429){
+        const errText=await res.text();
+        lastErr=new Error(`HTTP ${res.status}: ${errText.slice(0,100)}`);
+        console.warn(`Gemini ${res.status} (${attempt+1}回目), リトライ…`);
+        continue;
+      }
+      if(!res.ok){
+        const errText=await res.text();
+        console.error('Gemini HTTP error:', res.status, errText);
+        throw new Error(`HTTP ${res.status}: ${errText.slice(0,200)}`);
+      }
+      const data=await res.json();
+      console.log('Gemini response:', JSON.stringify(data).slice(0,300));
+      if(data.error) throw new Error(data.error.message);
+      const raw=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
+      const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim());
+      applyParsed(parsed);
+      lastErr=null;
+      break;
     }
-    const data=await res.json();
-    console.log('Gemini response:', JSON.stringify(data).slice(0,300));
-    if(data.error) throw new Error(data.error.message);
-    const raw=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
-    const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim());
-    applyParsed(parsed);
+    if(lastErr) throw lastErr;
   }catch(e){
     console.error('Gemini API error:', e);
     // fallback
@@ -1940,17 +1980,8 @@ async function fetchEvents(autoDetect=false){
     LS.set('last_fetch_ts', String(Date.now())); // 最終取得時刻を記録
     refreshUpcoming();
     renderCalendar();
-    // 海外滞在を自動検知（autoDetect=trueかつ1日1回まで）
-    if(autoDetect){
-      const today=new Date().toISOString().slice(0,10);
-      const lastRun=LS.get('auto_detect_date')||'';
-      if(lastRun!==today){
-        LS.set('auto_detect_date',today);
-        autoDetectStays();
-      } else {
-        console.log('[koe] autoDetectStays: 本日実行済み、スキップ');
-      }
-    }
+    // 海外滞在を自動検知（autoDetect=trueのとき常に実行、GeminiAPI呼び出しは内部で1日1回制限）
+    if(autoDetect) autoDetectStays();
   }catch(e){showToast('予定取得エラー: '+e.message,'error');}
   finally{hideLoading();}
 }
