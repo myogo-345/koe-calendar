@@ -813,7 +813,7 @@ function detectTzFromLocation(loc){
   }
   for(const tz of getAllTz()){
     const city=tz.split('/').pop().replace(/_/g,' ').toLowerCase();
-    if(city.length>=3&&l.includes(city)) return tz;
+    if(city.length>=3&&l.includes(city)&&tz!=='Asia/Tokyo') return tz;
   }
   return null;
 }
@@ -951,9 +951,11 @@ async function autoDetectStays(){
     // Asia/Tokyo も登録する（韓国・中国など時差ゼロ国の滞在も記録するため）
     // ただし「日本」単体キーワードのみのイベントは除外
     if(tz==='Asia/Tokyo'){
-      const locLower=(ev.location||'').toLowerCase();
-      const sumLower=(ev.summary||'').toLowerCase();
-      const isJapanOnly=/^(日本|japan|tokyo|東京|osaka|大阪|kyoto|京都|yokohama|横浜)[\s　]*$/i.test((ev.location||ev.summary||'').trim());
+      const JAPAN_RE=/^(日本|japan|tokyo|東京|osaka|大阪|kyoto|京都|yokohama|横浜|nagoya|名古屋|fukuoka|福岡|sapporo|札幌|sendai|仙台|hiroshima|広島|kobe|神戸|kawasaki|川崎|saitama|さいたま|chiba|千葉|hokkaido|北海道|okinawa|沖縄|kyushu|九州|shikoku|四国)[\s　]*$/i;
+      // location と summary の両方をチェック（片方だけで判断しない）
+      const locStr=(ev.location||'').trim();
+      const sumStr=(ev.summary||'').trim();
+      const isJapanOnly=JAPAN_RE.test(locStr)||JAPAN_RE.test(sumStr)||(!locStr&&!sumStr);
       if(isJapanOnly){
         console.log('[koe] autoDetectStays: 日本国内イベント、スキップ:', ev.summary);
         continue;
@@ -1148,10 +1150,11 @@ function checkTzAlert(date,startTime,endTime){
     alertEl.style.display='none';execBtn.style.display='';
     S._activeTzStay=null;return;
   }
-  // 時差チェック: 日本との時差が±1時間未満ならアラート不要
+  // 時差チェック: イベント日付の正午基準で±1時間未満ならアラート不要（DST対応）
   {
-    const nowMs=Date.now();
-    const fmt=(tz)=>new Intl.DateTimeFormat('sv-SE',{timeZone:tz,hour:'2-digit',minute:'2-digit'}).format(nowMs);
+    const eventMs=new Date(`${date}T12:00:00`).getTime();
+    const refMs=isNaN(eventMs)?Date.now():eventMs;
+    const fmt=(tz)=>new Intl.DateTimeFormat('sv-SE',{timeZone:tz,hour:'2-digit',minute:'2-digit'}).format(refMs);
     const [jH,jM]=fmt('Asia/Tokyo').split(':').map(Number);
     const [lH,lM]=fmt(stay.tz).split(':').map(Number);
     let diffMin=(lH*60+lM)-(jH*60+jM);
@@ -1522,8 +1525,13 @@ async function runParse(){
 
 【日付のルール（最重要）】
 ・テキストに「6月17日」「17日」など具体的な日付が含まれる場合は必ずその日付を使う
-・今日(${today})・明日(${tomorrow})などの相対表現は上記の日付に変換する
 ・具体的な日付の言及があるのに今日の日付を使うのは絶対に禁止
+・相対表現の解釈（必ず正確に）：
+  今日=${today}、明日=${tomorrow}
+  来週＝今日から7〜13日後の同じ曜日（例: 来週月曜＝直近の月曜+7日）
+  今週末＝直近の土曜または日曜
+  再来週＝今日から14〜20日後
+  〇曜日＝今日より後の直近のその曜日
 
 【タイトルのルール】
 ・タイトルには予定の「種類・内容・人名」のみ。日付・時刻は絶対に含めない
@@ -1593,15 +1601,18 @@ async function runParse(){
       console.log('Gemini response:', JSON.stringify(data).slice(0,300));
       if(data.error) throw new Error(data.error.message);
       const raw=data.candidates?.[0]?.content?.parts?.[0]?.text||'{}';
-      const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim());
-      applyParsed(parsed);
       lastErr=null;
+      const parsed=JSON.parse(raw.replace(/```json|```/g,'').trim());
+      // APIの成否確定後にUI反映（applyParsedの例外をAPI失敗と混同しないよう分離）
+      try{ applyParsed(parsed); }catch(applyErr){
+        console.error('applyParsed error:', applyErr);
+        applyParsed(demoFallback(text));
+      }
       break;
     }
     if(lastErr) throw lastErr;
   }catch(e){
     console.error('Gemini API error:', e);
-    // fallback
     applyParsed(demoFallback(text));
     showToast('API失敗: ' + (e.message||String(e)), 'error');
   }finally{
@@ -1855,7 +1866,7 @@ async function execAction(){
       if(r.status===401){const ref=await ensureToken(true);if(!ref){btn.disabled=false;return;}await gcalPost('/calendars/primary/events',body);}
       addHistory({label:'追加',title,date,start:isAllDay?'終日':start,end,status:'success'});
       showToast('カレンダーに追加しました ✓','success');
-      clearCard(); await fetchEvents(); autoDetectStays();
+      clearCard(); await fetchEvents(); await autoDetectStays();
     }catch(e){addHistory({label:'追加',title,date,start,end,status:'error'});showToast('追加に失敗: '+e.message,'error');}
     btn.innerHTML=SAVE_ICON; btn.disabled=false;
 
@@ -1910,7 +1921,7 @@ async function execAction(){
       if(!r.ok) throw new Error((await r.json()).error?.message||'APIエラー');
       addHistory({label:'変更',title,date,start:isAllDay?'終日':start,end,status:'success'});
       showToast('予定を変更しました ✓','success');
-      clearCard(); await fetchEvents(); autoDetectStays();
+      clearCard(); await fetchEvents(); await autoDetectStays();
     }catch(e){showToast('変更に失敗: '+e.message,'error');}
     btn.innerHTML='✎ 変更を保存'; btn.disabled=false;
 
@@ -1937,7 +1948,7 @@ async function execAction(){
       if(r.status!==204&&!r.ok) throw new Error('削除APIエラー');
       addHistory({label:'削除',title,date:'',start:'',end:'',status:'success'});
       showToast('予定を削除しました ✓','success');
-      clearCard(); await fetchEvents();
+      clearCard(); await fetchEvents(); await autoDetectStays();
     }catch(e){showToast('削除に失敗: '+e.message,'error');}
     btn.innerHTML='✕ 削除する'; btn.disabled=false;
   }
@@ -1981,7 +1992,7 @@ async function fetchEvents(autoDetect=false){
     refreshUpcoming();
     renderCalendar();
     // 海外滞在を自動検知（autoDetect=trueのとき常に実行、GeminiAPI呼び出しは内部で1日1回制限）
-    if(autoDetect) autoDetectStays();
+    if(autoDetect) await autoDetectStays();
   }catch(e){showToast('予定取得エラー: '+e.message,'error');}
   finally{hideLoading();}
 }
