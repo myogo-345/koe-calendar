@@ -2316,7 +2316,14 @@ function addDays(dateStr,n){
 
 // 終日・時間指定両対応の時刻表示文字列
 function formatEventTime(ev){
-  if(ev.start?.dateTime) return `${ev.start.dateTime.slice(11,16)} – ${ev.end.dateTime.slice(11,16)}`;
+  if(ev.start?.dateTime){
+    const tz=ev.start?.timeZone;
+    if(tz){
+      const fmt=(d)=>new Intl.DateTimeFormat('sv-SE',{timeZone:tz,hour:'2-digit',minute:'2-digit'}).format(new Date(d));
+      return `${fmt(ev.start.dateTime)} – ${fmt(ev.end?.dateTime||ev.start.dateTime)}`;
+    }
+    return `${ev.start.dateTime.slice(11,16)} – ${ev.end.dateTime.slice(11,16)}`;
+  }
   // 終日イベント（end.dateはexclusive → -1日してinclusive表示）
   if(ev.start?.date&&ev.end?.date){
     const endInclusive=addDays(ev.end.date,-1);
