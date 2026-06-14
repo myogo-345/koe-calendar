@@ -1898,7 +1898,13 @@ async function execAction(){
       if(r.status===401){const ref=await ensureToken(true);if(!ref){btn.disabled=false;return;}r=await gcalPost('/calendars/primary/events',body);}
       if(!r.ok) throw new Error((await r.json()).error?.message||'APIエラー');
       addHistory({label:'追加',title,date,start:isAllDay?'終日':start,end,status:'success'});
-      showToast('カレンダーに追加しました ✓','success');
+      if(tzMode==='japan'&&activeTzStay){
+        const city=activeTzStay.cityName||getTzCity(activeTzStay.tz);
+        const endDisp=regEnd?`〜${regEnd}`:'';
+        showToast(`カレンダーに追加しました ✓（${city} ${regStart}${endDisp} で登録）`,'success');
+      }else{
+        showToast('カレンダーに追加しました ✓','success');
+      }
       clearCard(); await fetchEvents(); autoDetectStays();
     }catch(e){addHistory({label:'追加',title,date,start,end,status:'error'});showToast('追加に失敗: '+e.message,'error');}
     btn.innerHTML=SAVE_ICON; btn.disabled=false;
@@ -1969,7 +1975,13 @@ async function execAction(){
       if(r.status===401){await ensureToken(true);r=await gcalPatch('/calendars/primary/events/'+action.targetId,body);}
       if(!r.ok) throw new Error((await r.json()).error?.message||'APIエラー');
       addHistory({label:'変更',title,date,start:isAllDay?'終日':start,end,status:'success'});
-      showToast('予定を変更しました ✓','success');
+      if(tzMode==='japan'&&activeTzStay){
+        const city=activeTzStay.cityName||getTzCity(activeTzStay.tz);
+        const endDisp=regEnd?`〜${regEnd}`:'';
+        showToast(`予定を変更しました ✓（${city} ${regStart}${endDisp} で登録）`,'success');
+      }else{
+        showToast('予定を変更しました ✓','success');
+      }
       clearCard(); await fetchEvents(); autoDetectStays();
     }catch(e){showToast('変更に失敗: '+e.message,'error');}
     btn.innerHTML='✎ 変更を保存'; btn.disabled=false;
