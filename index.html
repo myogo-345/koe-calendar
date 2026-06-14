@@ -1192,6 +1192,8 @@ function checkTzAlert(date,startTime,endTime){
   const jpFromLocal =convertRange(stay.tz,'Asia/Tokyo');
   // パターンB: 入力 = 日本時間 → 現地時間を表示
   const localFromJp =convertRange('Asia/Tokyo',stay.tz);
+  // パターンBボタン用: 開始時間だけを現地時間に変換（ラベル表示用）
+  const localFromJpStart=convertTime(startTime,'Asia/Tokyo',stay.tz);
 
   const inputDisp=endTime?`${startTime} 〜 ${endTime}`:startTime;
   const startDisp=startTime;
@@ -1202,13 +1204,13 @@ function checkTzAlert(date,startTime,endTime){
       <div class="tz-pattern-title">パターン A｜${city}の現地時間で登録</div>
       <div class="tz-pattern-row">🌏 ${city}（${off}）：<strong>${inputDisp}</strong></div>
       <div class="tz-pattern-row">🇯🇵 日本時間（JST）：<strong>${jpFromLocal}</strong></div>
-      <button class="tz-pattern-btn local" onclick="execWithTz('local')">🌏 ${city} ${startDisp} で登録</button>
+      <button class="tz-pattern-btn local" onclick="execWithTz('local')">🌏 ${city} ${startDisp} で登録（現地時間）</button>
     </div>
     <div class="tz-pattern-card" id="tzCardB">
-      <div class="tz-pattern-title">パターン B｜日本時間で登録</div>
+      <div class="tz-pattern-title">パターン B｜日本時間 → ${city}時間に変換して登録</div>
       <div class="tz-pattern-row">🇯🇵 日本時間（JST）：<strong>${inputDisp}</strong></div>
       <div class="tz-pattern-row">🌏 ${city}（${off}）：<strong>${localFromJp}</strong></div>
-      <button class="tz-pattern-btn japan" onclick="execWithTz('japan')">🇯🇵 日本時間 ${startDisp} で登録</button>
+      <button class="tz-pattern-btn japan" onclick="execWithTz('japan')">🇯🇵 日本 ${startDisp} → ${city} ${localFromJpStart} で登録</button>
     </div>`;
 
   alertEl.style.display='block';
@@ -1825,8 +1827,11 @@ async function execAction(){
   const btn=document.getElementById('execBtn');
   btn.disabled=true;
 
-  // 使用タイムゾーン（時差アラートで選択された場合はそちらを優先）
-  const _tz=(S.tzMode==='local'&&S._activeTzStay)?S._activeTzStay.tz:'Asia/Tokyo';
+  // 時差モード保存（add/editパスで変換処理に使用）
+  const tzMode=S.tzMode;
+  const activeTzStay=S._activeTzStay;
+  // 両パターンとも現地タイムゾーンで登録（滞在中のみ）
+  const _tz=activeTzStay?activeTzStay.tz:'Asia/Tokyo';
   S.tzMode=null;
 
   // ── ADD ──
@@ -1867,9 +1872,28 @@ async function execAction(){
     const ok=await ensureToken();
     if(!ok){btn.innerHTML=SAVE_ICON;btn.disabled=false;return;}
     try{
+      // 時差モードに応じて登録時刻・メモを決定
+      let regDate=date,regStart=start,regEnd=end,regEndDate=date,finalNotes=notes;
+      if(activeTzStay&&!isAllDay){
+        if(tzMode==='local'){
+          // A: 入力=現地時間 → メモに日本時間を追記
+          const jpS=utcMsToLocal(localToUtcMs(date,start,activeTzStay.tz),'Asia/Tokyo');
+          let jpNote=`🇯🇵 日本時間: ${jpS.time}`;
+          if(end){const jpE=utcMsToLocal(localToUtcMs(date,end,activeTzStay.tz),'Asia/Tokyo');jpNote=`🇯🇵 日本時間: ${jpS.time}〜${jpE.time}`;}
+          finalNotes=notes?`${notes}\n${jpNote}`:jpNote;
+        }else if(tzMode==='japan'){
+          // B: 入力=日本時間 → 現地時間に変換して登録、メモに日本時間を追記
+          const locS=utcMsToLocal(localToUtcMs(date,start,'Asia/Tokyo'),activeTzStay.tz);
+          regDate=locS.date;regStart=locS.time;
+          if(end){const locE=utcMsToLocal(localToUtcMs(date,end,'Asia/Tokyo'),activeTzStay.tz);regEnd=locE.time;regEndDate=locE.date;}
+          else{regEndDate=regDate;}
+          const jpNote=end?`🇯🇵 日本時間: ${start}〜${end}`:`🇯🇵 日本時間: ${start}`;
+          finalNotes=notes?`${notes}\n${jpNote}`:jpNote;
+        }
+      }
       const body=isAllDay
-        ?{summary:title,location:loc,description:notes,start:{date},end:{date:calcEndDate()}}
-        :{summary:title,location:loc,description:notes,start:{dateTime:`${date}T${start}:00`,timeZone:_tz},end:{dateTime:`${date}T${end}:00`,timeZone:_tz}};
+        ?{summary:title,location:loc,description:finalNotes,start:{date},end:{date:calcEndDate()}}
+        :{summary:title,location:loc,description:finalNotes,start:{dateTime:`${regDate}T${regStart}:00`,timeZone:_tz},end:{dateTime:`${regEndDate}T${regEnd}:00`,timeZone:_tz}};
       let r=await gcalPost('/calendars/primary/events',body);
       if(r.status===401){const ref=await ensureToken(true);if(!ref){btn.disabled=false;return;}r=await gcalPost('/calendars/primary/events',body);}
       if(!r.ok) throw new Error((await r.json()).error?.message||'APIエラー');
@@ -1922,9 +1946,25 @@ async function execAction(){
     const ok=await ensureToken();
     if(!ok){btn.disabled=false;return;}
     try{
+      let regDate=date,regStart=start,regEnd=end,regEndDate=date,finalNotes=notes;
+      if(activeTzStay&&!isAllDay){
+        if(tzMode==='local'){
+          const jpS=utcMsToLocal(localToUtcMs(date,start,activeTzStay.tz),'Asia/Tokyo');
+          let jpNote=`🇯🇵 日本時間: ${jpS.time}`;
+          if(end){const jpE=utcMsToLocal(localToUtcMs(date,end,activeTzStay.tz),'Asia/Tokyo');jpNote=`🇯🇵 日本時間: ${jpS.time}〜${jpE.time}`;}
+          finalNotes=notes?`${notes}\n${jpNote}`:jpNote;
+        }else if(tzMode==='japan'){
+          const locS=utcMsToLocal(localToUtcMs(date,start,'Asia/Tokyo'),activeTzStay.tz);
+          regDate=locS.date;regStart=locS.time;
+          if(end){const locE=utcMsToLocal(localToUtcMs(date,end,'Asia/Tokyo'),activeTzStay.tz);regEnd=locE.time;regEndDate=locE.date;}
+          else{regEndDate=regDate;}
+          const jpNote=end?`🇯🇵 日本時間: ${start}〜${end}`:`🇯🇵 日本時間: ${start}`;
+          finalNotes=notes?`${notes}\n${jpNote}`:jpNote;
+        }
+      }
       const body=isAllDay
-        ?{summary:title,location:loc,description:notes,start:{date},end:{date:calcEditEndDate()}}
-        :{summary:title,location:loc,description:notes,start:{dateTime:`${date}T${start}:00`,timeZone:_tz},end:{dateTime:`${date}T${end}:00`,timeZone:_tz}};
+        ?{summary:title,location:loc,description:finalNotes,start:{date},end:{date:calcEditEndDate()}}
+        :{summary:title,location:loc,description:finalNotes,start:{dateTime:`${regDate}T${regStart}:00`,timeZone:_tz},end:{dateTime:`${regEndDate}T${regEnd}:00`,timeZone:_tz}};
       let r=await gcalPatch('/calendars/primary/events/'+action.targetId,body);
       if(r.status===401){await ensureToken(true);r=await gcalPatch('/calendars/primary/events/'+action.targetId,body);}
       if(!r.ok) throw new Error((await r.json()).error?.message||'APIエラー');
