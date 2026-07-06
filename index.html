@@ -164,6 +164,18 @@ main{padding:28px 0 24px}
 .cal-event-dot{width:5px;height:5px;border-radius:50%;background:var(--accent);flex-shrink:0}
 .cal-event-dot.google{background:var(--green)}
 
+/* ── Color picker ── */
+.color-picker-wrap{display:flex;flex-direction:column;gap:6px}
+.color-swatch-row{display:flex;gap:5px;flex-wrap:wrap}
+.color-swatch{width:28px;height:28px;border-radius:50%;border:2px solid transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:border-color .15s,transform .1s;flex-shrink:0;padding:0}
+.color-swatch:hover{transform:scale(1.12)}
+.color-swatch.selected{border-color:#fff;box-shadow:0 0 0 2px rgba(0,0,0,.3)}
+.color-swatch .swatch-check{color:#fff;font-size:14px;line-height:1;font-weight:bold;display:none}
+.color-swatch.selected .swatch-check{display:block}
+.color-default-btn{font-size:11px;font-family:'DM Mono',monospace;color:var(--ink-muted);background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px;cursor:pointer;transition:all .15s;align-self:flex-start}
+.color-default-btn:hover,.color-default-btn.selected{border-color:var(--ink-muted);color:var(--ink)}
+.color-default-btn.selected{background:var(--ink-muted);color:#fff}
+
 .day-events-section{margin-bottom:24px}
 .day-events-title{font-size:13px;font-family:'DM Mono',monospace;color:var(--ink-muted);margin-bottom:12px;display:flex;align-items:center;gap:8px}
 .event-list{display:flex;flex-direction:column;gap:8px}
@@ -426,6 +438,27 @@ footer{padding:20px 0;border-top:1px solid var(--border);font-size:10px;color:va
           </div></div>
           <div class="pf"><label>場所</label><input type="text" id="fLoc" placeholder="場所（任意）"></div>
           <div class="pf"><label>メモ</label><textarea id="fNotes" placeholder="メモ（任意）"></textarea></div>
+          <div class="pf" id="colorPickerRow">
+            <label>カラー</label>
+            <div class="color-picker-wrap">
+              <div class="color-swatch-row" id="colorSwatchRow1">
+                <button type="button" class="color-swatch" data-cid="11" style="background:#D50000" onclick="selectColor('11')" title="トマト"><span class="swatch-check">✓</span></button>
+                <button type="button" class="color-swatch" data-cid="4"  style="background:#E67C73" onclick="selectColor('4')"  title="フラミンゴ"><span class="swatch-check">✓</span></button>
+                <button type="button" class="color-swatch" data-cid="6"  style="background:#F4511E" onclick="selectColor('6')"  title="タンジェリン"><span class="swatch-check">✓</span></button>
+                <button type="button" class="color-swatch" data-cid="5"  style="background:#F6BF26" onclick="selectColor('5')"  title="バナナ"><span class="swatch-check">✓</span></button>
+                <button type="button" class="color-swatch" data-cid="2"  style="background:#33B679" onclick="selectColor('2')"  title="セージ"><span class="swatch-check">✓</span></button>
+                <button type="button" class="color-swatch" data-cid="10" style="background:#0B8043" onclick="selectColor('10')" title="バジル"><span class="swatch-check">✓</span></button>
+              </div>
+              <div class="color-swatch-row" id="colorSwatchRow2">
+                <button type="button" class="color-swatch" data-cid="7"  style="background:#039BE5" onclick="selectColor('7')"  title="ピーコック"><span class="swatch-check">✓</span></button>
+                <button type="button" class="color-swatch" data-cid="9"  style="background:#3F51B5" onclick="selectColor('9')"  title="ブルーベリー"><span class="swatch-check">✓</span></button>
+                <button type="button" class="color-swatch" data-cid="1"  style="background:#7986CB" onclick="selectColor('1')"  title="ラベンダー"><span class="swatch-check">✓</span></button>
+                <button type="button" class="color-swatch" data-cid="3"  style="background:#8E24AA" onclick="selectColor('3')"  title="グレープ"><span class="swatch-check">✓</span></button>
+                <button type="button" class="color-swatch" data-cid="8"  style="background:#616161" onclick="selectColor('8')"  title="グラファイト"><span class="swatch-check">✓</span></button>
+              </div>
+              <button type="button" class="color-default-btn" id="colorDefaultBtn" onclick="selectColor(null)">✓ デフォルト</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -707,6 +740,12 @@ const savePref=(k,v)=>LS.setJ(k,v);
 // ══════════════════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════════════════
+const GCAL_COLORS = {
+  '1':'#7986CB','2':'#33B679','3':'#8E24AA','4':'#E67C73',
+  '5':'#F6BF26','6':'#F4511E','7':'#039BE5','8':'#616161',
+  '9':'#3F51B5','10':'#0B8043','11':'#D50000',
+};
+
 const S = {
   mode: 'add',           // 'add' | 'edit' | 'delete'
   history: [],
@@ -721,6 +760,7 @@ const S = {
   tzMode: null,          // 'local' | 'japan' | null
   _activeTzStay: null,   // stay object matched to parse card date
   isAllDay: false,       // all-day / multi-day event mode
+  selectedColorId: '7',  // Google Calendar colorId (default: ピーコック)
 };
 
 // ══════════════════════════════════════════════════════
@@ -1693,6 +1733,8 @@ function applyParsed(d){
     document.getElementById('fEnd').value=endVal;
     document.getElementById('fLoc').value=d.location||'';
     document.getElementById('fNotes').value=d.notes||'';
+    selectColor('7');
+    document.getElementById('colorPickerRow').style.display='';
     // 終日モード
     setAlldayMode(effectiveIsAllDay);
     if(effectiveIsAllDay && d.endDate) document.getElementById('fEndDate').value=d.endDate;
@@ -1714,11 +1756,13 @@ function applyParsed(d){
       headerText.textContent='変更する予定を確認してください';
       execBtn.innerHTML='✎ 変更を保存';
       execBtn.className='btn btn-primary';
+      document.getElementById('colorPickerRow').style.display='';
     } else {
       header.className='card-header delete';
       headerText.textContent='削除する予定を確認してください';
       execBtn.innerHTML='✕ 削除する';
       execBtn.className='btn btn-danger';
+      document.getElementById('colorPickerRow').style.display='none';
     }
     reparseBtn.style.display='';
 
@@ -1820,6 +1864,7 @@ function showSingleMatch(ev, d){
       // Google Calは終了日がexclusive → 1日戻してフォームに表示
       document.getElementById('fEndDate').value=addDays(ev.end.date,-1);
     }
+    selectColor(ev.colorId||'7');
     S.pendingAction={type:'edit',targetId:ev.id,data:d,isAllDay:!!evIsAllDay};
     if(!evIsAllDay) checkTzAlert(
       document.getElementById('fDate').value,
@@ -1905,9 +1950,10 @@ async function execAction(){
           finalNotes=notes?`${notes}\n${jpNote}`:jpNote;
         }
       }
+      const colorId=S.selectedColorId;
       const body=isAllDay
-        ?{summary:title,location:loc,description:finalNotes,start:{date},end:{date:calcEndDate()}}
-        :{summary:title,location:loc,description:finalNotes,start:{dateTime:`${regDate}T${regStart}:00`,timeZone:_tz},end:{dateTime:`${regEndDate}T${regEnd}:00`,timeZone:_tz}};
+        ?{summary:title,location:loc,description:finalNotes,start:{date},end:{date:calcEndDate()},...(colorId?{colorId}:{})}
+        :{summary:title,location:loc,description:finalNotes,start:{dateTime:`${regDate}T${regStart}:00`,timeZone:_tz},end:{dateTime:`${regEndDate}T${regEnd}:00`,timeZone:_tz},...(colorId?{colorId}:{})};
       let r=await gcalPost('/calendars/primary/events',body);
       if(r.status===401){const ref=await ensureToken(true);if(!ref){btn.disabled=false;return;}r=await gcalPost('/calendars/primary/events',body);}
       if(!r.ok) throw new Error((await r.json()).error?.message||'APIエラー');
@@ -1982,9 +2028,10 @@ async function execAction(){
           finalNotes=notes?`${notes}\n${jpNote}`:jpNote;
         }
       }
+      const colorId=S.selectedColorId;
       const body=isAllDay
-        ?{summary:title,location:loc,description:finalNotes,start:{date},end:{date:calcEditEndDate()}}
-        :{summary:title,location:loc,description:finalNotes,start:{dateTime:`${regDate}T${regStart}:00`,timeZone:_tz},end:{dateTime:`${regEndDate}T${regEnd}:00`,timeZone:_tz}};
+        ?{summary:title,location:loc,description:finalNotes,start:{date},end:{date:calcEditEndDate()},...(colorId?{colorId}:{})}
+        :{summary:title,location:loc,description:finalNotes,start:{dateTime:`${regDate}T${regStart}:00`,timeZone:_tz},end:{dateTime:`${regEndDate}T${regEnd}:00`,timeZone:_tz},...(colorId?{colorId}:{})};
       let r=await gcalPatch('/calendars/primary/events/'+action.targetId,body);
       if(r.status===401){await ensureToken(true);r=await gcalPatch('/calendars/primary/events/'+action.targetId,body);}
       if(!r.ok) throw new Error((await r.json()).error?.message||'APIエラー');
@@ -2029,6 +2076,15 @@ async function execAction(){
   }
 }
 
+function selectColor(id){
+  S.selectedColorId=id;
+  document.querySelectorAll('.color-swatch').forEach(el=>{
+    el.classList.toggle('selected', el.dataset.cid===id);
+  });
+  const defBtn=document.getElementById('colorDefaultBtn');
+  if(defBtn) defBtn.classList.toggle('selected', id===null);
+}
+
 function clearCard(){
   document.getElementById('parseCard').classList.remove('visible');
   document.getElementById('transcriptText').textContent='';
@@ -2036,6 +2092,7 @@ function clearCard(){
   document.getElementById('tzAlert').style.display='none';
   document.getElementById('execBtn').style.display='';
   S.pendingAction=null; S.tzMode=null; S._activeTzStay=null;
+  selectColor('7');
   setAlldayMode(false);
   setMode('add');
 }
@@ -2149,7 +2206,10 @@ function renderCalendar(){
       }
       return false;
     });
-    const dots=evs.slice(0,4).map(ev=>`<div class="cal-event-dot${ev._google?' google':''}"></div>`).join('');
+    const dots=evs.slice(0,4).map(ev=>{
+      const color=ev.colorId?GCAL_COLORS[ev.colorId]:ev._google?'var(--green)':'var(--accent)';
+      return `<div class="cal-event-dot" style="background:${color}"></div>`;
+    }).join('');
     html+=`<div class="cal-cell${isToday?' today':''}${isSel?' selected':''}" onclick="selectDay('${dateStr}')">
       <div class="cal-num">${d}</div>
       <div class="cal-dot-row">${dots}</div>
